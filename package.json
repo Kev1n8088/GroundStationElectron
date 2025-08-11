@@ -1,0 +1,67 @@
+{
+  "name": "ground-station-gui",
+  "version": "1.0.0",
+  "description": "Ground Station GUI for Airborne Vehicle",
+  "main": "main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "rebuild": "electron-rebuild",
+    "clean": "rimraf node_modules dist",
+    "install:clean": "pnpm run clean && pnpm install"
+  },
+  "keywords": [
+    "electron",
+    "ground-station",
+    "telemetry",
+    "3d",
+    "uav",
+    "gui"
+  ],
+  "author": "Ground Station Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0",
+    "pnpm": ">=7.0.0"
+  },
+  "packageManager": "pnpm@8.0.0",
+  "dependencies": {
+    "@serialport/parser-readline": "^12.0.0",
+    "crc-32": "^1.2.2",
+    "serialport": "^12.0.0"
+  },
+  "devDependencies": {
+    "electron": "^37.2.6",
+    "electron-builder": "^24.6.4",
+    "electron-rebuild": "^3.2.9",
+    "rimraf": "^5.0.5"
+  },
+  "pnpm": {
+    "allowedDeprecatedVersions": {
+      "*": "*"
+    }
+  },
+  "build": {
+    "appId": "com.groundstation.gui",
+    "productName": "Ground Station GUI",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/node_modules/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+      "!.editorconfig",
+      "!**/._*",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+      "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+      "!**/{appveyor.yml,.travis.yml,circle.yml}",
+      "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json,pnpm-lock.yaml}"
+    ]
+  }
+}

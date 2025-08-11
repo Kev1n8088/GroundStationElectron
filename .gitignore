@@ -1,0 +1,25 @@
+# Node.js
+node_modules/
+dist/
+build/
+.pnpm-store/
+.pnpm-debug.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.*
+.DS_Store
+Thumbs.db
+*.log
+*.tgz
+*.zip
+.idea/
+.vscode/
+
+# Electron-specific
+out/
+release/
+temp/
+*.asar
+!*.asar.unpacked # If you have unpacked asar files that need to be versioned
