@@ -308,7 +308,7 @@ class LFSSerialComm {
     }
 
     handleStateTelemetry(data) {
-        if (data.length < 53) { // 1 + 52 bytes expected
+        if (data.length < 65) { // 1 + 52 bytes expected
             console.error('State telemetry data too short');
             return;
         }
@@ -329,7 +329,9 @@ class LFSSerialComm {
         const posX = data.readFloatLE(offset); offset += 4;
         const posY = data.readFloatLE(offset); offset += 4;
         const posZ = data.readFloatLE(offset); offset += 4;
-        const timeSinceLaunch = data.readFloatLE(offset);
+        const timeSinceLaunch = data.readFloatLE(offset);  offset += 4;
+        const vehicleMs = data.readUInt32LE(offset);  offset += 4;
+        const downCount = data.readUInt32LE(offset); 
 
         const telemetryData = {
             vehicleState,
@@ -337,7 +339,9 @@ class LFSSerialComm {
             acceleration: { x: accelX, y: accelY, z: accelZ },
             velocity: { x: velX, y: velY, z: velZ },
             position: { x: posX, y: posY, z: posZ },
-            timeSinceLaunch
+            timeSinceLaunch, 
+            vehicleMs,
+            downCount
         };
 
         console.log('State Telemetry:', telemetryData);
@@ -345,7 +349,7 @@ class LFSSerialComm {
     }
 
     handleSensorData(data) {
-        if (data.length < 42) { // 1 + 1 + 40 bytes expected
+        if (data.length < 50) { // 1 + 1 + 40 bytes expected
             console.error('Sensor data too short');
             return;
         }
@@ -363,7 +367,9 @@ class LFSSerialComm {
         const baroAltitude = data.readFloatLE(offset); offset += 4;
         const gyroBiasYaw = data.readFloatLE(offset); offset += 4;
         const gyroBiasPitch = data.readFloatLE(offset); offset += 4;
-        const gyroBiasRoll = data.readFloatLE(offset);
+        const gyroBiasRoll = data.readFloatLE(offset); offset += 4;
+        const vehicleMs = data.readUInt32LE(offset);  offset += 4;
+        const downCount = data.readUInt32LE(offset); 
 
         const sensorData = {
             failmask,
@@ -371,7 +377,9 @@ class LFSSerialComm {
             gyro: { yaw: gyroYaw, pitch: gyroPitch, roll: gyroRoll },
             accelerometer: { x: accelX, y: accelY, z: accelZ },
             baroAltitude,
-            gyroBias: { yaw: gyroBiasYaw, pitch: gyroBiasPitch, roll: gyroBiasRoll }
+            gyroBias: { yaw: gyroBiasYaw, pitch: gyroBiasPitch, roll: gyroBiasRoll }, 
+            vehicleMs,
+            downCount
         };
 
         console.log('Sensor Data:', sensorData);
