@@ -11,7 +11,10 @@ const CHECKSUM_SIZE = 4;
 // Message Types
 const MESSAGE_TYPES = {
     STATE_TELEMETRY: 155,
-    SENSORS: 156
+    SENSORS: 156,
+    GPS: 157,
+    LANDER: 158,
+    KALMAN: 159
 };
 
 let packetBuffer = Buffer.alloc(0);
@@ -34,7 +37,7 @@ class LFSSerialComm {
         }
     }
 
-    async connect(portPath = null, baudRate = 57600) {
+    async connect(portPath = null, baudRate = 115200) {
         try {
             // If no port specified, try to find one automatically
             if (!portPath) {
@@ -206,6 +209,15 @@ class LFSSerialComm {
                 break;
             case MESSAGE_TYPES.SENSORS:
                 this.handleSensorData(unpacked.data);
+                break;
+            case MESSAGE_TYPES.GPS:
+                this.handleGPSData(unpacked.data);
+                break;
+            case MESSAGE_TYPES.LANDER:
+                this.handleLanderData(unpacked.data);
+                break;
+            case MESSAGE_TYPES.KALMAN:
+                this.handleKalmanData(unpacked.data);
                 break;
             default:
                 console.log('Unknown message type:', unpacked.messageType);
@@ -383,7 +395,147 @@ class LFSSerialComm {
         };
 
         console.log('Sensor Data:', sensorData);
-        this.updateDisplaysWithSensors(sensorData);
+    }
+    
+    handleGPSData(data) {
+        if (data.length < 80){
+            console.error('GPS data too short');
+            return;
+        }
+
+        let offset = 0;
+        const satsInView = data.readUInt8(offset); offset += 1;
+        const satsUsed = data.readUInt8(offset); offset += 1;
+        const gpsQuality = data.readUInt8(offset); offset += 1;
+
+        const latitude = data.readFloatLE(offset); offset += 4;
+        const longitude = data.readFloatLE(offset); offset += 4;
+        const altitude = data.readFloatLE(offset); offset += 4;
+        const accuracy2D = data.readFloatLE(offset); offset += 4;
+        const accuracy3D = data.readFloatLE(offset); offset += 4;
+        const PDOP = data.readFloatLE(offset); offset += 4;
+        const gpsMs = data.readUInt32LE(offset); offset += 4;
+        const lastRTCM = data.readUInt32LE(offset); offset += 4;
+        const latHome = data.readFloatLE(offset); offset += 4;
+        const lonHome = data.readFloatLE(offset); offset += 4;
+        const altHome = data.readFloatLE(offset); offset += 4;
+        const downVel = data.readFloatLE(offset); offset += 4;
+        const eastVel = data.readFloatLE(offset); offset += 4;
+        const northVel = data.readFloatLE(offset); offset += 4;
+        const relX = data.readFloatLE(offset); offset += 4;
+        const relY = data.readFloatLE(offset); offset += 4;
+        const relZ = data.readFloatLE(offset); offset += 4;
+        const vehicleMs = data.readUInt32LE(offset); offset += 4;
+        const downCount = data.readUInt32LE(offset);
+
+        const gpsData = {
+            satsInView,
+            satsUsed,
+            gpsQuality,
+            position: { latitude, longitude, altitude },
+            relativePosition: { x: relX, y: relY, z: relZ },
+            velocity: { x: -downVel, y: eastVel, z: northVel }, // NED to ENU
+            accuracy: { horizontal: accuracy2D, vertical: accuracy3D },
+            PDOP,
+            gpsMs,
+            lastRTCM,
+            homePosition: { latitude: latHome, longitude: lonHome, altitude: altHome },
+            vehicleMs,
+            downCount
+        };
+    }
+
+    handleLanderData(data){
+        if (data.length < 89) {
+            console.error('Lander data too short');
+            return;
+        }
+
+        let offset = 0;
+        const YTarget = data.readFloatLE(offset); offset += 4;
+        const ZTarget = data.readFloatLE(offset); offset += 4;
+        const ignitionAlt = data.readFloatLE(offset); offset += 4;
+        const apogeeAlt = data.readFloatLE(offset); offset += 4;
+        const yawSetpoint = data.readFloatLE(offset); offset += 4;
+        const pitchSetpoint = data.readFloatLE(offset); offset += 4;
+        const yawCommand = data.readFloatLE(offset); offset += 4;
+        const pitchCommand = data.readFloatLE(offset); offset += 4;
+        const rollMixedYaw = data.readFloatLE(offset); offset += 4;
+        const rollMixedPitch = data.readFloatLE(offset); offset += 4;
+        const rollCommand = data.readFloatLE(offset); offset += 4;
+        const YProjected = data.readFloatLE(offset); offset += 4;
+        const ZProjected = data.readFloatLE(offset); offset += 4;
+        const VBAT = data.readFloatLE(offset); offset += 4;
+        const thrust = data.readFloatLE(offset); offset += 4;
+        const mass = data.readFloatLE(offset); offset += 4;
+        const MMOI = data.readFloatLE(offset); offset += 4;
+        const momentArm = data.readFloatLE(offset); offset += 4;
+        const pyroStatus = data.readUInt8(offset); offset += 1;
+        const vehicleMs = data.readUInt32LE(offset); offset += 4;
+        const downCount = data.readUInt32LE(offset);
+
+        const landerData = {
+            target: { Y: YTarget, Z: ZTarget },
+            ignitionAltitude: ignitionAlt,
+            apogeeAltitude: apogeeAlt,
+            setpoints: { yaw: yawSetpoint, pitch: pitchSetpoint },
+            commands: { yaw: yawCommand, pitch: pitchCommand},
+            rollMixed: { yaw: rollMixedYaw, pitch: rollMixedPitch },
+            rollCommand,
+            projected: { Y: YProjected, Z: ZProjected },
+            batteryVoltage: VBAT,
+            thrust,
+            mass,
+            momentOfInertia: MMOI,
+            momentArm,
+            pyroStatus,
+            vehicleMs,
+            downCount
+        }
+    }
+
+    handleKalmanData(data){
+        if (data.length < 80){
+            console.error('Kalman data too short');
+            return;
+        }
+
+        let offset = 0;
+        const accUncX = data.readFloatLE(offset); offset += 4;
+        const accUncY = data.readFloatLE(offset); offset += 4;
+        const accUncZ = data.readFloatLE(offset); offset += 4;
+        const velUncX = data.readFloatLE(offset); offset += 4;
+        const velUncY = data.readFloatLE(offset); offset += 4;
+        const velUncZ = data.readFloatLE(offset); offset += 4;
+        const posUncX = data.readFloatLE(offset); offset += 4;
+        const posUncY = data.readFloatLE(offset); offset += 4;
+        const posUncZ = data.readFloatLE(offset); offset += 4;
+        const accMeasX = data.readFloatLE(offset); offset += 4;
+        const accMeasY = data.readFloatLE(offset); offset += 4;
+        const accMeasZ = data.readFloatLE(offset); offset += 4;
+        const velMeasX = data.readFloatLE(offset); offset += 4;
+        const velMeasY = data.readFloatLE(offset); offset += 4;
+        const velMeasZ = data.readFloatLE(offset); offset += 4;
+        const posMeasX = data.readFloatLE(offset); offset += 4;
+        const posMeasY = data.readFloatLE(offset); offset += 4;
+        const posMeasZ = data.readFloatLE(offset); offset += 4;
+        const vehicleMs = data.readUInt32LE(offset); offset += 4;
+        const downCount = data.readUInt32LE(offset);
+
+        const kalmanData = {
+            uncertainty: {
+                acceleration: { x: accUncX, y: accUncY, z: accUncZ },
+                velocity: { x: velUncX, y: velUncY, z: velUncZ },
+                position: { x: posUncX, y: posUncY, z: posUncZ }
+            },
+            measurements: {
+                acceleration: { x: accMeasX, y: accMeasY, z: accMeasZ },
+                velocity: { x: velMeasX, y: velMeasY, z: velMeasZ },
+                position: { x: posMeasX, y: posMeasY, z: posMeasZ }
+            },
+            vehicleMs,
+            downCount
+        };
     }
 
     updateDisplaysWithTelemetry(telemetry) {
@@ -397,59 +549,7 @@ class LFSSerialComm {
             // vehicleState.acceleration = telemetry.acceleration;
         }
 
-        // // Update 3D scene if it exists
-        // if (typeof threeScene !== 'undefined') {
-        //     threeScene.updateVehicleTransform();
-        // }
-        
-        // // Update status displays
-        // const posXEl = document.getElementById('pos-x');
-        // const posYEl = document.getElementById('pos-y');
-        // const posZEl = document.getElementById('pos-z');
-        
-        // if (posXEl) posXEl.textContent = telemetry.position.x.toFixed(1);
-        // if (posYEl) posYEl.textContent = telemetry.position.y.toFixed(1);
-        // if (posZEl) posZEl.textContent = telemetry.position.z.toFixed(1);
-
-        // // Convert quaternion to euler for display
-        // const euler = this.quaternionToEuler(telemetry.quaternion);
-        // const rollEl = document.getElementById('roll');
-        // const pitchEl = document.getElementById('pitch');
-        // const yawEl = document.getElementById('yaw');
-        
-        // if (rollEl) rollEl.textContent = (euler.roll * 180 / Math.PI).toFixed(1);
-        // if (pitchEl) pitchEl.textContent = (euler.pitch * 180 / Math.PI).toFixed(1);
-        // if (yawEl) yawEl.textContent = (euler.yaw * 180 / Math.PI).toFixed(1);
-        
-        // // Update charts if they exist
-        // if (typeof updateCharts === 'function') {
-        //     updateCharts();
-        // }
-
         threeScene.updateVehicleTransform();
-    }
-
-    updateDisplaysWithSensors(sensors) {
-        // Update sensor status displays
-        // const sensorStatusEl = document.getElementById('sensor-status');
-        // if (sensorStatusEl) {
-        //     const statusText = sensors.failmask === 0 ? 'ALL OK' : `FAIL: ${sensors.failmask.toString(2)}`;
-        //     sensorStatusEl.textContent = statusText;
-        //     sensorStatusEl.className = sensors.failmask === 0 ? 'sensor-status ok' : 'sensor-status error';
-        // }
-
-        // const sdStatusEl = document.getElementById('sd-status');
-        // if (sdStatusEl) {
-        //     sdStatusEl.textContent = sensors.sdGood ? 'SD OK' : 'SD FAIL';
-        //     sdStatusEl.className = sensors.sdGood ? 'sd-status ok' : 'sd-status error';
-        // }
-
-        // console.log('Sensors updated:', {
-        //     gyro: sensors.gyro,
-        //     accel: sensors.accelerometer,
-        //     altitude: sensors.baroAltitude,
-        //     sdStatus: sensors.sdGood
-        // });
     }
 
     quaternionToEuler(q) {
