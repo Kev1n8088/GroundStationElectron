@@ -8,7 +8,8 @@ app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('enable-gpu-rasterization');
 app.commandLine.appendSwitch('enable-zero-copy');
 app.commandLine.appendSwitch('use-angle', 'd3d11'); // or 'gl' to try OpenGL
-
+app.commandLine.appendSwitch('high-dpi-support', 1)
+app.commandLine.appendSwitch('force-device-scale-factor', 1)
 // On Optimus laptops:
 app.commandLine.appendSwitch('force_high_performance_gpu');
 
