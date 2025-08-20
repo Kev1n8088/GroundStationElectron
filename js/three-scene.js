@@ -31,7 +31,7 @@ class ThreeScene {
             0.1, 
             1000
         );
-        camera.position.set(3, 3, 3);
+        camera.position.set(-3, 3, -3);
         camera.lookAt(0, 0, 0);
 
         // Renderer setup
@@ -198,7 +198,7 @@ class ThreeScene {
         let isMouseDown = false;
         let mouseX = 0, mouseY = 0;
         let cameraRadius = 4.2;
-        let cameraTheta = Math.PI / 4;
+        let cameraTheta = Math.PI + Math.PI / 4;
         let cameraPhi = Math.PI / 4;
 
         const container = document.getElementById('threejs-container');

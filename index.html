@@ -9,55 +9,233 @@
     <!-- Three.js and dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-    <script type="module">
-        import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
-        window.THREE = window.THREE || {};
-        window.THREE.OBJLoader = OBJLoader;
-    </script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
 </head>
 <body>
-    <div class="container">
-        <div class="panel" id="threejs-container">
-            <div class="controls">
-                <div class="status-display">
-                    <div>Vehicle Status: <span id="vehicle-status">DISCONNECTED</span></div>
-                    <div>Position: X:<span id="pos-x">0.0</span> Y:<span id="pos-y">0.0</span> Z:<span id="pos-z">0.0</span></div>
-                    <div>Orientation: R:<span id="roll">0.0</span>° P:<span id="pitch">0.0</span>° Y:<span id="yaw">0.0</span>°</div>
-                    <div class="serial-status" id="serial-status">Serial: DISCONNECTED</div>
-                    <div class="model-status" id="model-status">Model: DEFAULT</div>
+    <div class="main-container">
+        <!-- Left Half -->
+        <div class="left-half">
+            <!-- Critical Info Panel (30%) -->
+            <div class="critical-info-panel">
+                <div class="info-left">
+                    <div class="button-group">
+                        <button onclick="connectSerial()">Connect</button>
+                        <button onclick="sendCommand('ARM')">ARM</button>
+                        <button onclick="sendCommand('DISARM')">DISARM</button>
+                        <button onclick="sendCommand('PING')">Ping</button>
+                        <div class="test-state-group">
+                            <button onclick="enterTestState()">Enter Test</button>
+                            <select id="test-state-select">
+                                <option value="preptest">Test Prep</option>
+                                <option value="wheeltest">Reaction Wheel</option>
+                                <option value="stabtest">Stabilization</option>
+                                <option value="positest">Position</option>
+                                <option value="trajtest">Trajectory</option>
+                                <option value="misalignTest">Misalign Test</option>
+                                <option value="pyroTest">Pyro Test</option>
+                            </select>
+                        </div>
+                        <label class="rtcm-toggle">
+                            <input type="checkbox" id="rtcm-toggle">
+                            <span>Activate RTCM</span>
+                        </label>
+                    </div>
                 </div>
-                
-                <div class="button-group">
-                    <button onclick="connectSerial()">Connect Serial</button>
-                    <button onclick="loadObjModel()">Load 3D Model</button>
-                    <button onclick="sendCommand('ARM')">ARM Vehicle</button>
-                    <button onclick="sendCommand('DISARM')">DISARM Vehicle</button>
-                    <button onclick="sendCommand('HOME')">Return Home</button>
-                    <button onclick="toggleSimulation()">Toggle Simulation</button>
+                <div class="info-right">
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <label>Vehicle State:</label>
+                            <span id="vehicle-state" class="status-value disconnected">DISCONNECTED</span>
+                        </div>
+                        <div class="status-item">
+                            <label>GPS Fix Type:</label>
+                            <span id="gps-fix-type" class="status-value bad">NO FIX</span>
+                        </div>
+                        <div class="status-item">
+                            <label>Pyro Status:</label>
+                            <div class="pyro-indicator" id="pyro-status" title="No Good"></div>
+                        </div>
+                        <div class="status-item">
+                            <label>Sensors:</label>
+                            <button id="sensor-status-btn" class="sensor-status-btn failure" onclick="toggleSensorPanel()">FAILURES</button>
+                        </div>
+                        <div class="status-item">
+                            <label>Battery:</label>
+                            <span id="battery-voltage" class="status-value bad">0.0V</span>
+                        </div>
+                        <div class="status-item">
+                            <label>T+:</label>
+                            <span id="launch-time" class="status-value">0s</span>
+                        </div>
+                        <div class="status-item">
+                            <label>RTCM Age:</label>
+                            <span id="rtcm-age" class="status-value">--</span>
+                        </div>
+                        <div class="status-item">
+                            <label>Telemetry Age:</label>
+                            <span id="telemetry-age" class="status-value bad">--</span>
+                        </div>
+                    </div>
                 </div>
-                
-                <div class="input-group">
-                    <label>X:</label><input type="number" id="manual-x" value="0" step="0.1">
-                    <label>Y:</label><input type="number" id="manual-y" value="0" step="0.1">
-                    <label>Z:</label><input type="number" id="manual-z" value="5" step="0.1">
-                    <button onclick="setPosition()">Set Position</button>
-                </div>
-                
-                <div class="input-group">
-                    <label>Scale:</label><input type="number" id="model-scale" value="1.0" step="0.1" min="0.01">
-                    <button onclick="updateModelScale()">Update Scale</button>
+            </div>
+            
+            <!-- 3D Scene (70%) -->
+            <div class="scene-container" id="threejs-container">
+                <!-- Sensor Status Panel (Hidden by default) -->
+                <div id="sensor-panel" class="sensor-panel hidden">
+                    <div class="sensor-panel-header">
+                        <h3>Detailed Sensor Status</h3>
+                        <button onclick="toggleSensorPanel()">×</button>
+                    </div>
+                    <div class="sensor-panel-content">
+                        <!-- Basic Sensor Status -->
+                        <div class="sensor-section">
+                            <h4>Sensor Health</h4>
+                            <div class="sensor-grid">
+                                <div class="sensor-item">
+                                    <span>SCH1 IMU:</span>
+                                    <span id="SCH-status" class="sensor-status failure">FAIL</span>
+                                </div>
+                                <div class="sensor-item">
+                                    <span>ICM IMU:</span>
+                                    <span id="ICM-status" class="sensor-status failure">FAIL</span>
+                                </div>
+                                <div class="sensor-item">
+                                    <span>Magnetometer:</span>
+                                    <span id="mag-status" class="sensor-status failure">FAIL</span>
+                                </div>
+                                <div class="sensor-item">
+                                    <span>Barometer:</span>
+                                    <span id="baro-status" class="sensor-status failure">FAIL</span>
+                                </div>
+                                <div class="sensor-item">
+                                    <span>GPS:</span>
+                                    <span id="gps-status" class="sensor-status failure">FAIL</span>
+                                </div>
+                                <div class="sensor-item">
+                                    <span>SD Card:</span>
+                                    <span id="sd-status" class="sensor-status failure">FAIL</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Gyroscope Data & Bias -->
+                        <div class="sensor-section">
+                            <h4>Gyroscope (rad/s) & Bias</h4>
+                            <div class="sensor-data-grid">
+                                <div class="data-item">
+                                    <span>Yaw:</span>
+                                    <span id="gyro-yaw" class="data-value">0.000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Pitch:</span>
+                                    <span id="gyro-pitch" class="data-value">0.000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Roll:</span>
+                                    <span id="gyro-roll" class="data-value">0.000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Yaw Bias:</span>
+                                    <span id="gyro-bias-yaw" class="data-value">0.00000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Pitch Bias:</span>
+                                    <span id="gyro-bias-pitch" class="data-value">0.00000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Roll Bias:</span>
+                                    <span id="gyro-bias-roll" class="data-value">0.00000</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Accelerometer Data -->
+                        <div class="sensor-section">
+                            <h4>Accelerometer (m/s²)</h4>
+                            <div class="sensor-data-grid">
+                                <div class="data-item">
+                                    <span>X:</span>
+                                    <span id="accel-x" class="data-value">0.000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Y:</span>
+                                    <span id="accel-y" class="data-value">0.000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Z:</span>
+                                    <span id="accel-z" class="data-value">0.000</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Barometer Data -->
+                        <div class="sensor-section">
+                            <h4>Barometer</h4>
+                            <div class="sensor-data-grid">
+                                <div class="data-item">
+                                    <span>Altitude (m):</span>
+                                    <span id="baro-altitude" class="data-value">0.00</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- GPS Position Data -->
+                        <div class="sensor-section">
+                            <h4>GPS Position</h4>
+                            <div class="sensor-data-grid">
+                                <div class="data-item">
+                                    <span>Current Lat:</span>
+                                    <span id="current-lat" class="data-value">0.000000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Current Lon:</span>
+                                    <span id="current-lon" class="data-value">0.000000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Current Alt:</span>
+                                    <span id="current-alt" class="data-value">0.00</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Home Lat:</span>
+                                    <span id="home-lat" class="data-value">0.000000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Home Lon:</span>
+                                    <span id="home-lon" class="data-value">0.000000</span>
+                                </div>
+                                <div class="data-item">
+                                    <span>Home Alt:</span>
+                                    <span id="home-alt" class="data-value">0.00</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
         
-        <div class="panel chart-panel">
-            <h3>Altitude</h3>
-            <canvas id="chart1"></canvas>
-        </div>
-        
-        <div class="panel chart-panel">
-            <h3>Orientation</h3>
-            <canvas id="chart2"></canvas>
+         <!-- Right Half -->
+         <div class="right-half">
+            <!-- Control plot (25%) -->
+            <div class="control-plot">
+                <h3 class="control-plot-header">Navigation Control</h3>
+                <div class="plots-container">
+                    <div class="plot-section">
+                        <h4 class="plot-title">Position Error (Y-Z)</h4>
+                        <canvas id="position-plot" class="plot-canvas" width="300" height="200"></canvas>
+                    </div>
+                    <div class="plot-section">
+                        <h4 class="plot-title">Attitude Control (Yaw-Pitch)</h4>
+                        <canvas id="attitude-plot" class="plot-canvas" width="300" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Right Content Area (75%) -->
+            <div class="right-content">
+                <!-- Placeholder for future content -->
+            </div>
         </div>
     </div>
 
@@ -68,6 +246,21 @@
     <script src="js/model-loader.js"></script>
     <script src="js/simulation.js"></script>
     <script src="js/app.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <script src="js/control-plots.js"></script>
+    
+    <script>
+        // UI interaction functions
+        function toggleSensorPanel() {
+            const panel = document.getElementById('sensor-panel');
+            panel.classList.toggle('hidden');
+        }
+
+        function enterTestState() {
+            const select = document.getElementById('test-state-select');
+            const state = select.value;
+            console.log('Entering test state:', state);
+            // Implement test state logic
+        }
+    </script>
 </body>
 </html>

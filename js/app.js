@@ -16,7 +16,7 @@ class GroundStationApp {
             console.log('✓ 3D Scene initialized');
             
             // Initialize charts
-            chartManager.init();
+            //chartManager.init();
             console.log('✓ Charts initialized');
             
             // Try to auto-connect to serial port
@@ -41,6 +41,8 @@ class GroundStationApp {
             
             this.initialized = true;
             console.log('Ground Station GUI initialized successfully');
+            
+            await modelLoader.loadObjFile();
             
         } catch (error) {
             console.error('Failed to initialize application:', error);
@@ -205,7 +207,7 @@ class GroundStationApp {
         }
         
         // Clear charts
-        clearCharts();
+        //clearCharts();
         
         // Reset vehicle position
         vehicleState.position = { x: 0, y: 5, z: 0 };
@@ -302,9 +304,9 @@ class GroundStationApp {
     exportTelemetryData() {
         const data = {
             timestamp: new Date().toISOString(),
-            vehicleState: { ...vehicleState },
-            simulationStatus: simulation.getStatus(),
-            chartData: chartManager.exportChartData()
+            vehicleState: { ...vehicleState }
+            //simulationStatus: simulation.getStatus(),
+            //chartData: chartManager.exportChartData()
         };
         
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -350,9 +352,9 @@ function exportTelemetry() {
 if (process.argv && process.argv.includes('--dev')) {
     window.app = app;
     window.threeScene = threeScene;
-    window.simulation = simulation;
+    //window.simulation = simulation;
     window.serialComm = serialComm;
-    window.chartManager = chartManager;
+    //window.chartManager = chartManager;
     window.modelLoader = modelLoader;
     
     console.log('Development mode: Global objects exposed to window');

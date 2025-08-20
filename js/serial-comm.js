@@ -1,6 +1,18 @@
 // LFS LINK-80 Serial communication functionality
 const { SerialPort } = require('serialport');
 
+function getControlPlots() {
+    if (typeof window !== 'undefined' && window.controlPlots) {
+        return window.controlPlots;
+    }
+    // Return fallback object with no-op functions if not available
+    return {
+        updateAttitudeSetpoints: () => {},
+        updateTargetPosition: () => {}, 
+        updateCurrentPosition: () => {},
+        updateCurrentQuaternion: () => {}
+    };
+}
 // LFS LINK-80 Protocol Constants
 const PACKET_HEADER = 0xAA;
 const CRC_POLYNOMIAL = 0xEDB88320;
@@ -17,7 +29,71 @@ const MESSAGE_TYPES = {
     KALMAN: 159
 };
 
+// Vehicle state enum mapping
+const VEHICLE_STATES = {
+    0: 'DISARMED',
+    1: 'ARMED', 
+    2: 'ALIGN CALC',
+    3: 'ASC GUIDE',
+    4: 'ASC STAB',
+    5: 'DES COAST',
+    6: 'DES GUIDE',
+    7: 'LANDED',
+    64: 'WHEEL TEST',
+    65: 'STAB TEST',
+    66: 'POS TEST',
+    67: 'TRAJ TEST',
+    68: 'ALIGN TEST',
+    69: 'TEST PREP',
+    70: 'PYRO TEST'
+};
+
+// Sensor failmask bits
+const SENSOR_FAIL_BITS = {
+    BAROMETER: 0x01,
+    SCH1: 0x02,
+    ICM: 0x04,
+    MAGNETOMETER: 0x08,
+    GPS: 0x10
+};
+
 let packetBuffer = Buffer.alloc(0);
+
+let lastTelemetryTime = 0;
+let telemetryUpdateInterval = null;
+
+// Add this function to update telemetry age
+function updateTelemetryAge() {
+    const telemetryAgeElement = document.getElementById('telemetry-age');
+    if (!telemetryAgeElement) return;
+    
+    if (lastTelemetryTime === 0) {
+        telemetryAgeElement.textContent = '--';
+        telemetryAgeElement.className = 'status-value bad';
+        return;
+    }
+    
+    const ageMs = Date.now() - lastTelemetryTime;
+    
+    // Don't display values above 10 seconds
+    if (ageMs > 10000) {
+        telemetryAgeElement.textContent = '--';
+        telemetryAgeElement.className = 'status-value bad';
+        return;
+    }
+    
+    telemetryAgeElement.textContent = `${ageMs}ms`;
+    
+    // Color coding
+    telemetryAgeElement.className = 'status-value';
+    if (ageMs <= 100) {
+        telemetryAgeElement.classList.add('good');
+    } else if (ageMs <= 1000) {
+        telemetryAgeElement.classList.add('warning');
+    } else {
+        telemetryAgeElement.classList.add('bad');
+    }
+}
 
 class LFSSerialComm {
     constructor() {
@@ -202,6 +278,7 @@ class LFSSerialComm {
         }
 
         console.log('Valid LFS packet received, type:', unpacked.messageType);
+        lastTelemetryTime = Date.now();
 
         switch (unpacked.messageType) {
             case MESSAGE_TYPES.STATE_TELEMETRY:
@@ -320,7 +397,7 @@ class LFSSerialComm {
     }
 
     handleStateTelemetry(data) {
-        if (data.length < 65) { // 1 + 52 bytes expected
+        if (data.length < 65) {
             console.error('State telemetry data too short');
             return;
         }
@@ -341,9 +418,9 @@ class LFSSerialComm {
         const posX = data.readFloatLE(offset); offset += 4;
         const posY = data.readFloatLE(offset); offset += 4;
         const posZ = data.readFloatLE(offset); offset += 4;
-        const timeSinceLaunch = data.readFloatLE(offset);  offset += 4;
-        const vehicleMs = data.readUInt32LE(offset);  offset += 4;
-        const downCount = data.readUInt32LE(offset); 
+        const timeSinceLaunch = data.readFloatLE(offset); offset += 4;
+        const vehicleMs = data.readUInt32LE(offset); offset += 4;
+        const downCount = data.readUInt32LE(offset);
 
         const telemetryData = {
             vehicleState,
@@ -351,17 +428,21 @@ class LFSSerialComm {
             acceleration: { x: accelX, y: accelY, z: accelZ },
             velocity: { x: velX, y: velY, z: velZ },
             position: { x: posX, y: posY, z: posZ },
-            timeSinceLaunch, 
+            timeSinceLaunch,
             vehicleMs,
             downCount
         };
 
         console.log('State Telemetry:', telemetryData);
         this.updateDisplaysWithTelemetry(telemetryData);
+        this.updateVehicleState(vehicleState);
+        this.updateLaunchTime(timeSinceLaunch);
+        getControlPlots().updateCurrentPosition(telemetryData.position);
+        getControlPlots().updateCurrentQuaternion(telemetryData.quaternion);
     }
 
     handleSensorData(data) {
-        if (data.length < 50) { // 1 + 1 + 40 bytes expected
+        if (data.length < 50) {
             console.error('Sensor data too short');
             return;
         }
@@ -395,10 +476,12 @@ class LFSSerialComm {
         };
 
         console.log('Sensor Data:', sensorData);
+        this.updateSensorStatus(failmask);
+        this.updateSensorPanelData(sensorData);
     }
     
     handleGPSData(data) {
-        if (data.length < 80){
+        if (data.length < 79){
             console.error('GPS data too short');
             return;
         }
@@ -443,6 +526,11 @@ class LFSSerialComm {
             vehicleMs,
             downCount
         };
+
+        console.log('GPS Data:', gpsData);
+        this.updateGPSFixType(gpsQuality);
+        this.updateRTCMAge(lastRTCM);
+        this.updateGPSPanelData(gpsData);
     }
 
     handleLanderData(data){
@@ -462,6 +550,8 @@ class LFSSerialComm {
         const pitchCommand = data.readFloatLE(offset); offset += 4;
         const rollMixedYaw = data.readFloatLE(offset); offset += 4;
         const rollMixedPitch = data.readFloatLE(offset); offset += 4;
+        const yawMisalign = data.readFloatLE(offset); offset += 4;
+        const rollMixed = data.readFloatLE(offset); offset += 4;
         const rollCommand = data.readFloatLE(offset); offset += 4;
         const YProjected = data.readFloatLE(offset); offset += 4;
         const ZProjected = data.readFloatLE(offset); offset += 4;
@@ -481,6 +571,7 @@ class LFSSerialComm {
             setpoints: { yaw: yawSetpoint, pitch: pitchSetpoint },
             commands: { yaw: yawCommand, pitch: pitchCommand},
             rollMixed: { yaw: rollMixedYaw, pitch: rollMixedPitch },
+            misaligns: { yaw: yawMisalign, roll: rollMixed },
             rollCommand,
             projected: { Y: YProjected, Z: ZProjected },
             batteryVoltage: VBAT,
@@ -491,7 +582,13 @@ class LFSSerialComm {
             pyroStatus,
             vehicleMs,
             downCount
-        }
+        };
+
+        console.log('Lander Data:', landerData);
+        this.updateBatteryVoltage(VBAT);
+        this.updatePyroStatus(pyroStatus);
+        getControlPlots().updateAttitudeSetpoints(yawSetpoint, pitchSetpoint);
+        getControlPlots().updateTargetPosition(landerData.target);
     }
 
     handleKalmanData(data){
@@ -552,20 +649,239 @@ class LFSSerialComm {
         threeScene.updateVehicleTransform();
     }
 
-    quaternionToEuler(q) {
-        // Convert quaternion to euler angles (ZYX order)
-        const sinr_cosp = 2 * (q.w * q.x + q.y * q.z);
-        const cosr_cosp = 1 - 2 * (q.x * q.x + q.y * q.y);
-        const roll = Math.atan2(sinr_cosp, cosr_cosp);
+    updateVehicleState(state) {
+        const vehicleStateElement = document.getElementById('vehicle-state');
+        if (vehicleStateElement) {
+            const stateText = VEHICLE_STATES[state] || `UNKNOWN (${state})`;
+            vehicleStateElement.textContent = stateText;
+            
+            // Update color based on state
+            vehicleStateElement.className = 'status-value';
+            if (state === 0) {
+                vehicleStateElement.classList.add('bad'); // DISARMED
+            } else if (state === 1) {
+                vehicleStateElement.classList.add('warning'); // ARMED
+            } else if (state >= 2 && state <= 7) {
+                vehicleStateElement.classList.add('good'); // Active flight states
+            } else if (state >= 64 && state <= 69) {
+                vehicleStateElement.classList.add('warning'); // Test states
+            }
+        }
+    }
 
-        const sinp = 2 * (q.w * q.y - q.z * q.x);
-        const pitch = Math.abs(sinp) >= 1 ? Math.sign(sinp) * Math.PI / 2 : Math.asin(sinp);
+    updateSensorStatus(failmask) {
+        const sensorStatusBtn = document.getElementById('sensor-status-btn');
+        
+        // Update individual sensor statuses
+        this.updateIndividualSensor('baro-status', !(failmask & SENSOR_FAIL_BITS.BAROMETER));
+        this.updateIndividualSensor('SCH-status', !(failmask & SENSOR_FAIL_BITS.SCH1));
+        this.updateIndividualSensor('ICM-status', !(failmask & SENSOR_FAIL_BITS.ICM));
+        this.updateIndividualSensor('mag-status', !(failmask & SENSOR_FAIL_BITS.MAGNETOMETER));
+        this.updateIndividualSensor('gps-status', !(failmask & SENSOR_FAIL_BITS.GPS));
+        
+        // Update overall sensor status button
+        if (sensorStatusBtn) {
+            if (failmask === 0) {
+                sensorStatusBtn.textContent = 'ALL GOOD';
+                sensorStatusBtn.className = 'sensor-status-btn';
+            } else {
+                sensorStatusBtn.textContent = 'FAILURES';
+                sensorStatusBtn.className = 'sensor-status-btn failure';
+            }
+        }
+    }
 
-        const siny_cosp = 2 * (q.w * q.z + q.x * q.y);
-        const cosy_cosp = 1 - 2 * (q.y * q.y + q.z * q.z);
-        const yaw = Math.atan2(siny_cosp, cosy_cosp);
+    updateIndividualSensor(elementId, isGood) {
+        const element = document.getElementById(elementId);
+        if (element) {
+            element.textContent = isGood ? 'GOOD' : 'FAIL';
+            element.className = isGood ? 'sensor-status good' : 'sensor-status failure';
+        }
+    }
 
-        return { roll, pitch, yaw };
+    updateBatteryVoltage(voltage) {
+        const batteryElement = document.getElementById('battery-voltage');
+        if (batteryElement) {
+            batteryElement.textContent = `${voltage.toFixed(1)}V`;
+            
+            // Color code based on voltage levels
+            batteryElement.className = 'status-value';
+            if (voltage > 7.0) {
+                batteryElement.classList.add('good');
+            } else if (voltage > 6.5) {
+                batteryElement.classList.add('warning');
+            } else {
+                batteryElement.classList.add('bad');
+            }
+        }
+    }
+
+    updatePyroStatus(pyroStatus) {
+        const pyroElement = document.getElementById('pyro-status');
+        if (pyroElement) {
+            const isGood = pyroStatus === 127;
+            pyroElement.className = isGood ? 'pyro-indicator good' : 'pyro-indicator';
+            pyroElement.title = isGood ? 'Good' : 'No Good';
+        }
+    }
+
+    updateLaunchTime(timeSinceLaunch) {
+        const launchTimeElement = document.getElementById('launch-time');
+        if (launchTimeElement) {
+            if (timeSinceLaunch >= 0) {
+                launchTimeElement.textContent = `${timeSinceLaunch.toFixed(1)}s`;
+            } else {
+                launchTimeElement.textContent = '0s';
+            }
+        }
+    }
+
+    updateGPSFixType(quality) {
+        const gpsFixElement = document.getElementById('gps-fix-type');
+        if (gpsFixElement) {
+            let fixText, className;
+            
+            switch (quality) {
+                case 0:
+                    fixText = 'NO FIX';
+                    className = 'status-value bad';
+                    break;
+                case 1:
+                    fixText = '3D';
+                    className = 'status-value warning';
+                    break;
+                case 2:
+                    fixText = 'DGPS';
+                    className = 'status-value warning';
+                    break;
+                case 4:
+                    fixText = 'RTK FIXED';
+                    className = 'status-value good';
+                    break;
+                case 5:
+                    fixText = 'RTK FLOAT';
+                    className = 'status-value warning';
+                    break;
+                default:
+                    fixText = `UNKNOWN (${quality})`;
+                    className = 'status-value bad';
+            }
+            
+            gpsFixElement.textContent = fixText;
+            gpsFixElement.className = className;
+        }
+    }
+
+    updateRTCMAge(lastRTCM) {
+        const rtcmAgeElement = document.getElementById('rtcm-age');
+        if (rtcmAgeElement) {
+            if (lastRTCM > 0) {
+                const ageSeconds = (Date.now() - lastRTCM) / 1000;
+                rtcmAgeElement.textContent = `${ageSeconds.toFixed(0)}s`;
+                
+                // Color code based on age
+                rtcmAgeElement.className = 'status-value';
+                if (ageSeconds < 10) {
+                    rtcmAgeElement.classList.add('good');
+                } else if (ageSeconds < 30) {
+                    rtcmAgeElement.classList.add('warning');
+                } else {
+                    rtcmAgeElement.classList.add('bad');
+                }
+            } else {
+                rtcmAgeElement.textContent = '--';
+                rtcmAgeElement.className = 'status-value';
+            }
+        }
+    }
+
+    updateConnectionStatus(connected, portPath = null, error = null) {
+        const statusElement = document.getElementById('serial-status');
+        const vehicleStatusElement = document.getElementById('vehicle-status');
+        const vehicleStateElement = document.getElementById('vehicle-state');
+        
+        if (connected) {
+            if (statusElement) {
+                statusElement.textContent = `Serial: ${portPath || 'CONNECTED'}`;
+                statusElement.className = 'serial-status connected';
+            }
+            if (vehicleStatusElement) {
+                vehicleStatusElement.textContent = 'CONNECTED';
+            }
+            console.log('Serial connected, waiting for telemetry...');
+        } else {
+            if (statusElement) {
+                statusElement.textContent = error ? `Serial: ERROR - ${error}` : 'Serial: DISCONNECTED';
+                statusElement.className = 'serial-status';
+            }
+            if (vehicleStatusElement) {
+                vehicleStatusElement.textContent = 'DISCONNECTED';
+            }
+            if (vehicleStateElement) {
+                vehicleStateElement.textContent = 'DISCONNECTED';
+                vehicleStateElement.className = 'status-value disconnected';
+            }
+            this.resetStatusIndicators();
+        }
+    }
+
+    resetStatusIndicators() {
+        // Reset GPS fix
+        const gpsFixElement = document.getElementById('gps-fix-type');
+        if (gpsFixElement) {
+            gpsFixElement.textContent = 'NO FIX';
+            gpsFixElement.className = 'status-value bad';
+        }
+        
+        // Reset battery voltage
+        const batteryElement = document.getElementById('battery-voltage');
+        if (batteryElement) {
+            batteryElement.textContent = '0.0V';
+            batteryElement.className = 'status-value bad';
+        }
+        
+        // Reset pyro status
+        const pyroElement = document.getElementById('pyro-status');
+        if (pyroElement) {
+            pyroElement.className = 'pyro-indicator';
+            pyroElement.title = 'No Good';
+        }
+        
+        // Reset launch time
+        const launchTimeElement = document.getElementById('launch-time');
+        if (launchTimeElement) {
+            launchTimeElement.textContent = '0s';
+        }
+        
+        // Reset RTCM age
+        const rtcmAgeElement = document.getElementById('rtcm-age');
+        if (rtcmAgeElement) {
+            rtcmAgeElement.textContent = '--';
+            rtcmAgeElement.className = 'status-value';
+        }
+        
+        // Reset sensor status - default all to failed
+        this.updateIndividualSensor('baro-status', false);
+        this.updateIndividualSensor('SCH-status', false);
+        this.updateIndividualSensor('ICM-status', false);
+        this.updateIndividualSensor('mag-status', false);
+        this.updateIndividualSensor('gps-status', false);
+        
+        const sensorStatusBtn = document.getElementById('sensor-status-btn');
+        if (sensorStatusBtn) {
+            sensorStatusBtn.textContent = 'FAILURES';
+            sensorStatusBtn.className = 'sensor-status-btn failure';
+        }
+
+        lastTelemetryTime = 0;
+        const telemetryAgeElement = document.getElementById('telemetry-age');
+        if (telemetryAgeElement) {
+            telemetryAgeElement.textContent = '--';
+            telemetryAgeElement.className = 'status-value bad';
+        }
+
+        // Reset sensor panel data
+        this.resetSensorPanelData();
     }
 
     async sendData(data) {
@@ -592,29 +908,6 @@ class LFSSerialComm {
         }
     }
 
-    updateConnectionStatus(connected, portPath = null, error = null) {
-        const statusElement = document.getElementById('serial-status');
-        const vehicleStatusElement = document.getElementById('vehicle-status');
-        
-        if (connected) {
-            if (statusElement) {
-                statusElement.textContent = `Serial: ${portPath || 'CONNECTED'}`;
-                statusElement.className = 'serial-status connected';
-            }
-            if (vehicleStatusElement) {
-                vehicleStatusElement.textContent = 'CONNECTED';
-            }
-        } else {
-            if (statusElement) {
-                statusElement.textContent = error ? `Serial: ERROR - ${error}` : 'Serial: DISCONNECTED';
-                statusElement.className = 'serial-status';
-            }
-            if (vehicleStatusElement) {
-                vehicleStatusElement.textContent = 'DISCONNECTED';
-            }
-        }
-    }
-
     // Auto-connect to the first available port
     async autoConnect() {
         const ports = await this.listPorts();
@@ -629,10 +922,123 @@ class LFSSerialComm {
         }
         return false;
     }
+
+    updateSensorPanelData(sensorData) {
+        // Update gyroscope data
+        const gyroYawEl = document.getElementById('gyro-yaw');
+        const gyroPitchEl = document.getElementById('gyro-pitch');
+        const gyroRollEl = document.getElementById('gyro-roll');
+        
+        if (gyroYawEl) gyroYawEl.textContent = sensorData.gyro.yaw.toFixed(3);
+        if (gyroPitchEl) gyroPitchEl.textContent = sensorData.gyro.pitch.toFixed(3);
+        if (gyroRollEl) gyroRollEl.textContent = sensorData.gyro.roll.toFixed(3);
+
+        // Update gyroscope bias data
+        const gyroBiasYawEl = document.getElementById('gyro-bias-yaw');
+        const gyroBiasPitchEl = document.getElementById('gyro-bias-pitch');
+        const gyroBiasRollEl = document.getElementById('gyro-bias-roll');
+        
+        if (gyroBiasYawEl) gyroBiasYawEl.textContent = sensorData.gyroBias.yaw.toFixed(5);
+        if (gyroBiasPitchEl) gyroBiasPitchEl.textContent = sensorData.gyroBias.pitch.toFixed(5);
+        if (gyroBiasRollEl) gyroBiasRollEl.textContent = sensorData.gyroBias.roll.toFixed(5);
+
+        // Update accelerometer data
+        const accelXEl = document.getElementById('accel-x');
+        const accelYEl = document.getElementById('accel-y');
+        const accelZEl = document.getElementById('accel-z');
+        
+        if (accelXEl) accelXEl.textContent = sensorData.accelerometer.x.toFixed(3);
+        if (accelYEl) accelYEl.textContent = sensorData.accelerometer.y.toFixed(3);
+        if (accelZEl) accelZEl.textContent = sensorData.accelerometer.z.toFixed(3);
+
+        // Update barometer data
+        const baroAltEl = document.getElementById('baro-altitude');
+        if (baroAltEl) baroAltEl.textContent = sensorData.baroAltitude.toFixed(2);
+
+        // Update SD card status
+        const sdStatusEl = document.getElementById('sd-status');
+        if (sdStatusEl) {
+            sdStatusEl.textContent = sensorData.sdGood ? 'GOOD' : 'FAIL';
+            sdStatusEl.className = sensorData.sdGood ? 'sensor-status good' : 'sensor-status failure';
+        }
+    }
+
+    updateGPSPanelData(gpsData) {
+        // Update current GPS position
+        const currentLatEl = document.getElementById('current-lat');
+        const currentLonEl = document.getElementById('current-lon');
+        const currentAltEl = document.getElementById('current-alt');
+        
+        if (currentLatEl) currentLatEl.textContent = gpsData.position.latitude.toFixed(6);
+        if (currentLonEl) currentLonEl.textContent = gpsData.position.longitude.toFixed(6);
+        if (currentAltEl) currentAltEl.textContent = gpsData.position.altitude.toFixed(2);
+
+        // Update home GPS position
+        const homeLatEl = document.getElementById('home-lat');
+        const homeLonEl = document.getElementById('home-lon');
+        const homeAltEl = document.getElementById('home-alt');
+        
+        if (homeLatEl) homeLatEl.textContent = gpsData.homePosition.latitude.toFixed(6);
+        if (homeLonEl) homeLonEl.textContent = gpsData.homePosition.longitude.toFixed(6);
+        if (homeAltEl) homeAltEl.textContent = gpsData.homePosition.altitude.toFixed(2);
+    }
+
+    resetSensorPanelData() {
+        // Reset gyroscope data
+        const gyroElements = ['gyro-yaw', 'gyro-pitch', 'gyro-roll'];
+        gyroElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '0.000';
+        });
+
+        // Reset gyroscope bias data
+        const gyroBiasElements = ['gyro-bias-yaw', 'gyro-bias-pitch', 'gyro-bias-roll'];
+        gyroBiasElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '0.00000';
+        });
+
+        // Reset accelerometer data
+        const accelElements = ['accel-x', 'accel-y', 'accel-z'];
+        accelElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '0.000';
+        });
+
+        // Reset barometer data
+        const baroAltEl = document.getElementById('baro-altitude');
+        if (baroAltEl) baroAltEl.textContent = '0.00';
+
+        // Reset GPS position data
+        const gpsElements = ['current-lat', 'current-lon', 'current-alt', 'home-lat', 'home-lon', 'home-alt'];
+        gpsElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                if (id.includes('lat') || id.includes('lon')) {
+                    el.textContent = '0.000000';
+                } else {
+                    el.textContent = '0.00';
+                }
+            }
+        });
+
+        // Reset SD card status
+        const sdStatusEl = document.getElementById('sd-status');
+        if (sdStatusEl) {
+            sdStatusEl.textContent = 'FAIL';
+            sdStatusEl.className = 'sensor-status failure';
+        }
+    }
 }
 
 // Global instance
 const serialComm = new LFSSerialComm();
+
+// Initialize status indicators on startup
+document.addEventListener('DOMContentLoaded', () => {
+    serialComm.resetStatusIndicators();
+    telemetryUpdateInterval = setInterval(updateTelemetryAge, 10);
+});
 
 // Global functions for HTML interface
 async function connectSerial() {

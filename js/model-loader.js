@@ -1,6 +1,10 @@
 // Model loading functionality
 const { ipcRenderer } = require('electron');
 
+// Listen for startup model loading
+ipcRenderer.on('load-startup-model', () => {
+    loadObjModel();
+});
 
 class ModelLoader {
     constructor() {
@@ -115,12 +119,6 @@ class ModelLoader {
 
         // Replace the current vehicle
         threeScene.replaceVehicle(modelGroup);
-        this.currentModel = modelGroup;
-
-        // Update UI
-        this.updateModelStatus(filename, true);
-        document.getElementById('model-scale').value = this.defaultScale.toFixed(3);
-        
         console.log('Model loaded and processed successfully');
     }
 
@@ -155,19 +153,6 @@ class ModelLoader {
                 }
             }
         });
-    }
-
-    updateModelScale() {
-        if (!this.currentModel) return;
-
-        const scaleValue = parseFloat(document.getElementById('model-scale').value);
-        if (isNaN(scaleValue) || scaleValue <= 0) {
-            alert('Invalid scale value');
-            return;
-        }
-
-        this.currentModel.scale.setScalar(scaleValue);
-        console.log('Model scale updated to:', scaleValue);
     }
 
     showLoadingIndicator() {

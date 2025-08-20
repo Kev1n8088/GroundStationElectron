@@ -24,10 +24,10 @@ let mainWindow;
 
 function createWindow() {
     mainWindow = new BrowserWindow({
-        width: 1400,
-        height: 900,
-        minWidth: 1200,
-        minHeight: 700,
+        width: 2304,
+        height: 1440,
+        minWidth: 2304,
+        minHeight: 1440,
         webPreferences: {
             nodeIntegration: true,
             contextIsolation: false,
@@ -42,6 +42,7 @@ function createWindow() {
     // Show window when ready
     mainWindow.once('ready-to-show', () => {
         mainWindow.show();
+        // Trigger OBJ model load on startup
     });
 
     // Handle window closed
@@ -53,6 +54,17 @@ function createWindow() {
     if (process.argv.includes('--dev')) {
         mainWindow.webContents.openDevTools();
     }
+
+    // Maintain 16:10 aspect ratio
+    mainWindow.on('resize', () => {
+        const [width, height] = mainWindow.getSize();
+        const aspectRatio = 16 / 10;
+        
+        if (Math.abs(width / height - aspectRatio) > 0.01) {
+            const newHeight = Math.round(width / aspectRatio);
+            mainWindow.setSize(width, newHeight);
+        }
+    });
 }
 
 
