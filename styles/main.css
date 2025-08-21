@@ -28,6 +28,8 @@ body {
 .right-half {
     width: 50%;
     background: #0d1117;
+    display: flex;
+    flex-direction: column;
 }
 
 .critical-info-panel {
@@ -395,7 +397,302 @@ canvas {
     max-width: 300px;
     max-height: 300px;
 }
+
+.velocity-indicator-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    padding-top: 22px; /* Add padding to align with control plot titles */
+    width: 80px; /* Reduce overall width of the velocity indicator section */
+    flex-shrink: 0; /* Prevent shrinking */
+}
+
+.velocity-indicator-container {
+    display: flex;
+    align-items: center;
+    gap: 4px; /* Reduced gap between title and canvas */
+    width: 100%; /* Take full width of the section */
+    justify-content: center; /* Center the content */
+}
+
+.velocity-title-vertical {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 18px;
+    color: #ffffff;
+    text-align: center;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.velocity-canvas {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    width: 45px; /* Reduced from 60px to make bar narrower */
+    height: 250px;
+}
+
+.velocity-scale {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 250px;
+    font-size: 10px;
+    color: #8b949e;
+    padding: 2px 0;
+}
+
+.velocity-label {
+    text-align: left;
+    line-height: 1;
+}
+
+/* Roll Rate Indicator Styles */
+.roll-rate-indicator-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    padding-top: 22px; /* Add padding to align with control plot titles */
+    width: 80px; /* Same width as velocity indicator */
+    flex-shrink: 0; /* Prevent shrinking */
+}
+
+.roll-rate-indicator-container {
+    display: flex;
+    align-items: center;
+    gap: 4px; /* Reduced gap between title and canvas */
+    width: 100%; /* Take full width of the section */
+    justify-content: center; /* Center the content */
+}
+
+.roll-rate-title-vertical {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 18px;
+    color: #ffffff;
+    text-align: center;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.roll-rate-canvas {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    width: 45px;
+    height: 250px;
+}
+
+.roll-rate-scale {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 250px;
+    font-size: 10px;
+    color: #8b949e;
+    padding: 2px 0;
+}
+
+.roll-rate-label {
+    text-align: left;
+    line-height: 1;
+}
+
+/* Wheel Speed Indicator Styles */
+.wheel-speed-indicator-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+    padding-top: 22px; /* Add padding to align with control plot titles */
+    width: 80px; /* Same width as velocity indicator */
+    flex-shrink: 0; /* Prevent shrinking */
+}
+
+.wheel-speed-indicator-container {
+    display: flex;
+    align-items: center;
+    gap: 4px; /* Reduced gap between title and canvas */
+    width: 100%; /* Take full width of the section */
+    justify-content: center; /* Center the content */
+}
+
+.wheel-speed-title-vertical {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 18px;
+    color: #ffffff;
+    text-align: center;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.wheel-speed-canvas {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    width: 45px;
+    height: 250px;
+}
+
+.wheel-speed-scale {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 250px;
+    font-size: 10px;
+    color: #8b949e;
+    padding: 2px 0;
+}
+
+.wheel-speed-label {
+    text-align: left;
+    line-height: 1;
+}
+
 .right-content {
     height: 75%;
     background: #0d1117;
+    display: flex;
+    flex-direction: row;
+}
+
+.right-content-2 {
+    height: 25%;
+    background: #0d1117;
+    display: flex;
+    flex-direction: row;
+    border-bottom: 2px solid #30363d;
+}
+
+.future-content-area {
+    height: 50%;
+    background: #0d1117;
+    /* Reserved space for future features */
+}
+
+.gps-panel {
+    width: 50%; /* 50% of right-content-2 width = 25% of total screen width */
+    height: 100%; /* Takes full height of right-content-2 (which is 25% of screen) */
+    border-right: 2px solid #30363d;
+    padding: 12px; /* Reduced padding to give more space for content */
+    display: flex;
+    flex-direction: column;
+    gap: 8px; /* Reduced gap */
+    box-sizing: border-box; /* Include padding in height calculation */
+}
+
+.gps-panel-header {
+    font-size: 16px;
+    color: #58a6ff;
+    margin: 0;
+    border-bottom: 1px solid #30363d;
+    padding-bottom: 6px; /* Reduced padding */
+    flex-shrink: 0; /* Prevent header from shrinking */
+    height: 24px; /* Fixed height for header */
+}
+
+.gps-content {
+    display: flex;
+    gap: 15px;
+    flex: 1;
+    min-height: 0; /* Allow content to shrink below its natural size */
+    overflow: hidden; /* Prevent content from overflowing */
+    height: calc(100% - 32px); /* Explicit height: subtract header height (24px) + gap (8px) */
+}
+
+.gps-map-container {
+    flex: 2; /* Make map container wider (2/3 of available space) */
+    min-height: 0;
+    height: 100%; /* Ensure container takes full available height */
+}
+
+.gps-map {
+    width: 100%;
+    height: 100%;
+    max-height: 100%; /* Prevent map from exceeding container */
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    background: #161b22;
+}
+
+.gps-info-container {
+    flex: 1; /* Text info takes remaining 1/3 of space */
+    display: flex;
+    align-items: center;
+}
+
+.gps-info-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    width: 100%;
+}
+
+.gps-info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+}
+
+.gps-info-item label {
+    font-size: 14px;
+    color: #8b949e;
+}
+
+.gps-info-value {
+    font-size: 14px;
+    color: #ffffff;
+    font-family: 'Courier New', monospace;
+}
+
+.remaining-content {
+    flex: 1;
+    background: #0d1117;
+}
+
+/* GPS Map Marker Styles */
+.gps-marker {
+    background: transparent !important;
+    border: none !important;
+}
+
+.marker-icon {
+    font-size: 16px;
+    text-align: center;
+    line-height: 20px;
+    filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.8));
+}
+
+.home-marker .marker-icon {
+    color: #00ff00;
+}
+
+.current-marker .marker-icon {
+    color: #ff6b6b;
+}
+
+/* Leaflet popup customization */
+.leaflet-popup-content-wrapper {
+    background: #161b22 !important;
+    color: #ffffff !important;
+    border: 1px solid #30363d !important;
+}
+
+.leaflet-popup-content {
+    color: #ffffff !important;
+    font-family: 'Futura Md BT', sans-serif !important;
+    font-size: 12px !important;
+}
+
+.leaflet-popup-tip {
+    background: #161b22 !important;
+    border: 1px solid #30363d !important;
 }

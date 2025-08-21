@@ -2,13 +2,16 @@ class ControlPlots {
     constructor() {
         this.positionCanvas = document.getElementById('position-plot');
         this.attitudeCanvas = document.getElementById('attitude-plot');
+        this.gimbalCanvas = document.getElementById('gimbal-plot');
         
         this.positionCtx = this.positionCanvas.getContext('2d');
         this.attitudeCtx = this.attitudeCanvas.getContext('2d');
+        this.gimbalCtx = this.gimbalCanvas.getContext('2d');
         
         // Plot parameters - adjusted for limited ranges
         this.positionScale = 100; // pixels per meter (±1m range)
         this.attitudeScale = 200; // pixels per radian (±30° range)
+        this.gimbalScale = 1146; // pixels per radian (±5° range, optimized for canvas utilization)
         
         // Data storage
         this.currentPosition = { x: 0, y: 0, z: 0 };
@@ -16,6 +19,10 @@ class ControlPlots {
         this.positionError = { y: 0, z: 0 };
         this.quaternion = { w: 1, x: 0, y: 0, z: 0 };
         this.attitudeSetpoints = { yaw: 0, pitch: 0 };
+        
+        // Gimbal plot data
+        this.misalignments = { yaw: 0, pitch: 0 };
+        this.rollMixedCommands = { yaw: 0, pitch: 0 };
         
         this.initializeCanvases();
         this.startAnimation();
@@ -34,8 +41,8 @@ class ControlPlots {
         // Make plots square - use the smaller of available width/height
         const plotSize = Math.min(400, availableHeight - 20);
         
-        // Set both canvases to be square
-        [this.positionCanvas, this.attitudeCanvas].forEach(canvas => {
+        // Set all canvases to be square
+        [this.positionCanvas, this.attitudeCanvas, this.gimbalCanvas].forEach(canvas => {
             canvas.style.width = plotSize + 'px';
             canvas.style.height = plotSize + 'px';
             canvas.width = plotSize;
@@ -61,6 +68,33 @@ class ControlPlots {
         const yaw = Math.atan2(siny_cosp, cosy_cosp);
         
         return { roll, pitch, yaw };
+    }
+    
+    // Quaternion multiplication: q1 * q2
+    quaternionMultiply(q1, q2) {
+        return {
+            w: q1.w * q2.w - q1.x * q2.x - q1.y * q2.y - q1.z * q2.z,
+            x: q1.w * q2.x + q1.x * q2.w + q1.y * q2.z - q1.z * q2.y,
+            y: q1.w * q2.y - q1.x * q2.z + q1.y * q2.w + q1.z * q2.x,
+            z: q1.w * q2.z + q1.x * q2.y - q1.y * q2.x + q1.z * q2.w
+        };
+    }
+    
+    // Quaternion conjugate
+    quaternionConj(q) {
+        return { w: q.w, x: -q.x, y: -q.y, z: -q.z };
+    }
+    
+    // Rotate a 3D vector by a quaternion (body to world frame)
+    rotateVectorByQuaternion(vector, quaternion) {
+        // Convert vector to quaternion (w=0, x=vector.x, y=vector.y, z=vector.z)
+        const vecQuat = { w: 0, x: vector.x, y: vector.y, z: vector.z };
+        
+        // Rotation: q * v * q_conj (but since we're body-to-world, just q * v * q_conj)
+        const temp = this.quaternionMultiply(quaternion, vecQuat);
+        const result = this.quaternionMultiply(temp, this.quaternionConj(quaternion));
+        
+        return { x: result.x, y: result.y, z: result.z };
     }
     
     drawPositionPlot() {
@@ -229,6 +263,140 @@ class ControlPlots {
         ctx.textAlign = 'left';
     }
     
+    drawGimbalPlot() {
+        const ctx = this.gimbalCtx;
+        const canvas = this.gimbalCanvas;
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Get current roll angle for grid rotation
+        const euler = this.quaternionToEuler(this.quaternion);
+        const rollAngle = -euler.roll; // Negative for counterclockwise rotation with positive roll
+        
+        // Save context for rotation
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.rotate(rollAngle);
+        ctx.translate(-centerX, -centerY);
+        
+        // Draw grid with units (degrees) - this will be rotated
+        this.drawRotatedGridWithUnits(ctx, canvas, centerX, centerY, this.gimbalScale);
+        
+        // Restore context
+        ctx.restore();
+        
+        // Convert telemetry data from radians to degrees and transform to world frame
+        const misalignBody = { 
+            x: this.misalignments.yaw, 
+            y: this.misalignments.pitch, 
+            z: 0 
+        };
+        const commandsBody = { 
+            x: this.rollMixedCommands.yaw, 
+            y: this.rollMixedCommands.pitch, 
+            z: 0 
+        };
+        
+        // Transform from body frame to world frame using quaternion
+        const misalignWorld = this.rotateVectorByQuaternion(misalignBody, this.quaternion);
+        const commandsWorld = this.rotateVectorByQuaternion(commandsBody, this.quaternion);
+        
+        // Convert to screen coordinates using the gimbal scale (already in radians)
+        const misalignX = centerX + misalignWorld.x * this.gimbalScale;
+        const misalignY = centerY - misalignWorld.y * this.gimbalScale; // Y flipped for screen coords
+        const commandsX = centerX + commandsWorld.x * this.gimbalScale;
+        const commandsY = centerY - commandsWorld.y * this.gimbalScale;
+        
+        // Draw misalignment point (red circle)
+        ctx.fillStyle = '#ff3366';
+        ctx.beginPath();
+        ctx.arc(misalignX, misalignY, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Draw commands point (blue circle)
+        ctx.fillStyle = '#0099ff';
+        ctx.beginPath();
+        ctx.arc(commandsX, commandsY, 6, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        // Draw line connecting the points
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(misalignX, misalignY);
+        ctx.lineTo(commandsX, commandsY);
+        ctx.stroke();
+        
+        // Add axis labels (not rotated)
+        ctx.fillStyle = '#aaa';
+        ctx.font = '12px Arial';
+        ctx.fillText('Yaw (°)', canvas.width - 45, centerY - 5);
+        ctx.fillText('Pitch (°)', centerX + 5, 15);
+    }
+    
+    drawRotatedGridWithUnits(ctx, canvas, centerX, centerY, scale) {
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        
+        // Draw center lines
+        ctx.strokeStyle = '#555';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX, 0);
+        ctx.lineTo(centerX, canvas.height);
+        ctx.moveTo(0, centerY);
+        ctx.lineTo(canvas.width, centerY);
+        ctx.stroke();
+        
+        // For gimbal: ±5° range with 2.5° ticks
+        const tickPositions = [-5, -2.5, 2.5, 5]; // Show ±5°, ±2.5°
+        
+        ctx.strokeStyle = '#333';
+        ctx.lineWidth = 1;
+        
+        // Draw grid lines and labels for specific tick positions
+        ctx.fillStyle = '#666';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        
+        for (const value of tickPositions) {
+            const pixelOffset = value * (Math.PI / 180) * scale; // Convert degrees to radians to pixels
+            
+            const x = centerX + pixelOffset;
+            const y = centerY - pixelOffset; // Negative for Y because screen Y is flipped
+            
+            // Vertical lines (for horizontal axis values)
+            if (x >= 0 && x <= canvas.width) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+                
+                // Add horizontal axis labels
+                ctx.fillText(value + '°', x, centerY + 15);
+            }
+            
+            // Horizontal lines (for vertical axis values)
+            if (y >= 0 && y <= canvas.height) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+                
+                // Add vertical axis labels
+                ctx.textAlign = 'left';
+                ctx.fillText((-value) + '°', centerX + 5, y - 5);
+                ctx.textAlign = 'center';
+            }
+        }
+        
+        // Reset text alignment
+        ctx.textAlign = 'left';
+    }
+    
     // Separate update functions
     updateCurrentPosition(position) {
         this.currentPosition = position;
@@ -249,6 +417,16 @@ class ControlPlots {
         this.attitudeSetpoints.pitch = pitchSetpoint;
     }
     
+    updateMisalignments(yawMisalign, pitchMisalign) {
+        this.misalignments.yaw = yawMisalign;
+        this.misalignments.pitch = pitchMisalign;
+    }
+    
+    updateRollMixedCommands(rollMixedYaw, rollMixedPitch) {
+        this.rollMixedCommands.yaw = rollMixedYaw;
+        this.rollMixedCommands.pitch = rollMixedPitch;
+    }
+    
     calculatePositionError() {
         // Ignore x component, only compare y and z with setpoint
         this.positionError.y = this.currentPosition.y - this.targetPosition.y;
@@ -259,6 +437,7 @@ class ControlPlots {
         const animate = () => {
             this.drawPositionPlot();
             this.drawAttitudePlot();
+            this.drawGimbalPlot();
             requestAnimationFrame(animate);
         };
         animate();

@@ -439,6 +439,11 @@ class LFSSerialComm {
         this.updateLaunchTime(timeSinceLaunch);
         getControlPlots().updateCurrentPosition(telemetryData.position);
         getControlPlots().updateCurrentQuaternion(telemetryData.quaternion);
+        
+        // Update velocity indicator with vertical velocity (Z component)
+        if (typeof velocityIndicator !== 'undefined') {
+            velocityIndicator.updateVelocity(telemetryData.velocity.z);
+        }
     }
 
     handleSensorData(data) {
@@ -478,10 +483,15 @@ class LFSSerialComm {
         console.log('Sensor Data:', sensorData);
         this.updateSensorStatus(failmask);
         this.updateSensorPanelData(sensorData);
+        
+        // Update roll rate indicator with gyro roll data
+        if (typeof rollRateIndicator !== 'undefined') {
+            rollRateIndicator.updateRollRate(gyroRoll);
+        }
     }
     
     handleGPSData(data) {
-        if (data.length < 79){
+        if (data.length < 79) {
             console.error('GPS data too short');
             return;
         }
@@ -490,39 +500,29 @@ class LFSSerialComm {
         const satsInView = data.readUInt8(offset); offset += 1;
         const satsUsed = data.readUInt8(offset); offset += 1;
         const gpsQuality = data.readUInt8(offset); offset += 1;
-
-        const latitude = data.readFloatLE(offset); offset += 4;
-        const longitude = data.readFloatLE(offset); offset += 4;
-        const altitude = data.readFloatLE(offset); offset += 4;
-        const accuracy2D = data.readFloatLE(offset); offset += 4;
+        const pdop = data.readFloatLE(offset); offset += 4;
+        const hdop = data.readFloatLE(offset); offset += 4;
+        const vdop = data.readFloatLE(offset); offset += 4;
+        const currentLat = data.readFloatLE(offset); offset += 4;
+        const currentLon = data.readFloatLE(offset); offset += 4;
+        const currentAlt = data.readFloatLE(offset); offset += 4;
+        const homeLat = data.readFloatLE(offset); offset += 4;
+        const homeLon = data.readFloatLE(offset); offset += 4;
+        const homeAlt = data.readFloatLE(offset); offset += 4;
+        const lastRTCM = data.readFloatLE(offset); offset += 4;
         const accuracy3D = data.readFloatLE(offset); offset += 4;
-        const PDOP = data.readFloatLE(offset); offset += 4;
-        const gpsMs = data.readUInt32LE(offset); offset += 4;
-        const lastRTCM = data.readUInt32LE(offset); offset += 4;
-        const latHome = data.readFloatLE(offset); offset += 4;
-        const lonHome = data.readFloatLE(offset); offset += 4;
-        const altHome = data.readFloatLE(offset); offset += 4;
-        const downVel = data.readFloatLE(offset); offset += 4;
-        const eastVel = data.readFloatLE(offset); offset += 4;
-        const northVel = data.readFloatLE(offset); offset += 4;
-        const relX = data.readFloatLE(offset); offset += 4;
-        const relY = data.readFloatLE(offset); offset += 4;
-        const relZ = data.readFloatLE(offset); offset += 4;
+        const accuracy2D = data.readFloatLE(offset); offset += 4;
         const vehicleMs = data.readUInt32LE(offset); offset += 4;
         const downCount = data.readUInt32LE(offset);
 
         const gpsData = {
-            satsInView,
-            satsUsed,
-            gpsQuality,
-            position: { latitude, longitude, altitude },
-            relativePosition: { x: relX, y: relY, z: relZ },
-            velocity: { x: -downVel, y: eastVel, z: northVel }, // NED to ENU
-            accuracy: { horizontal: accuracy2D, vertical: accuracy3D },
-            PDOP,
-            gpsMs,
+            satellites: { inView: satsInView, used: satsUsed },
+            quality: gpsQuality,
+            dilutionOfPrecision: { position: pdop, horizontal: hdop, vertical: vdop },
+            position: { latitude: currentLat, longitude: currentLon, altitude: currentAlt },
+            homePosition: { latitude: homeLat, longitude: homeLon, altitude: homeAlt },
             lastRTCM,
-            homePosition: { latitude: latHome, longitude: lonHome, altitude: altHome },
+            accuracy: { threeD: accuracy3D, twoD: accuracy2D },
             vehicleMs,
             downCount
         };
@@ -531,6 +531,12 @@ class LFSSerialComm {
         this.updateGPSFixType(gpsQuality);
         this.updateRTCMAge(lastRTCM);
         this.updateGPSPanelData(gpsData);
+        
+        // Update GPS map if available
+        if (typeof gpsMap !== 'undefined') {
+            gpsMap.updateCurrentPosition(currentLat, currentLon);
+            gpsMap.updateHomePosition(homeLat, homeLon);
+        }
     }
 
     handleLanderData(data){
@@ -551,7 +557,7 @@ class LFSSerialComm {
         const rollMixedYaw = data.readFloatLE(offset); offset += 4;
         const rollMixedPitch = data.readFloatLE(offset); offset += 4;
         const yawMisalign = data.readFloatLE(offset); offset += 4;
-        const rollMixed = data.readFloatLE(offset); offset += 4;
+        const pitchMisalign = data.readFloatLE(offset); offset += 4;
         const rollCommand = data.readFloatLE(offset); offset += 4;
         const YProjected = data.readFloatLE(offset); offset += 4;
         const ZProjected = data.readFloatLE(offset); offset += 4;
@@ -571,7 +577,7 @@ class LFSSerialComm {
             setpoints: { yaw: yawSetpoint, pitch: pitchSetpoint },
             commands: { yaw: yawCommand, pitch: pitchCommand},
             rollMixed: { yaw: rollMixedYaw, pitch: rollMixedPitch },
-            misaligns: { yaw: yawMisalign, roll: rollMixed },
+            misaligns: { yaw: yawMisalign, roll: pitchMisalign },
             rollCommand,
             projected: { Y: YProjected, Z: ZProjected },
             batteryVoltage: VBAT,
@@ -589,6 +595,13 @@ class LFSSerialComm {
         this.updatePyroStatus(pyroStatus);
         getControlPlots().updateAttitudeSetpoints(yawSetpoint, pitchSetpoint);
         getControlPlots().updateTargetPosition(landerData.target);
+        getControlPlots().updateMisalignments(yawMisalign, pitchMisalign);
+        getControlPlots().updateRollMixedCommands(rollMixedYaw, rollMixedPitch);
+        
+        // Update wheel speed indicator with roll command data
+        if (typeof wheelSpeedIndicator !== 'undefined') {
+            wheelSpeedIndicator.updateWheelSpeed(rollCommand);
+        }
     }
 
     handleKalmanData(data){
@@ -964,7 +977,31 @@ class LFSSerialComm {
     }
 
     updateGPSPanelData(gpsData) {
-        // Update current GPS position
+        // Update satellite information
+        const gpsSatsEl = document.getElementById('gps-sats');
+        if (gpsSatsEl) {
+            gpsSatsEl.textContent = `${gpsData.satellites.used}/${gpsData.satellites.inView}`;
+        }
+
+        // Update PDOP
+        const gpsPdopEl = document.getElementById('gps-pdop');
+        if (gpsPdopEl) {
+            gpsPdopEl.textContent = gpsData.dilutionOfPrecision.position.toFixed(2);
+        }
+
+        // Update 3D accuracy
+        const gps3dAccEl = document.getElementById('gps-3d-acc');
+        if (gps3dAccEl) {
+            gps3dAccEl.textContent = `${gpsData.accuracy.threeD.toFixed(2)}m`;
+        }
+
+        // Update 2D accuracy
+        const gps2dAccEl = document.getElementById('gps-2d-acc');
+        if (gps2dAccEl) {
+            gps2dAccEl.textContent = `${gpsData.accuracy.twoD.toFixed(2)}m`;
+        }
+
+        // Update current GPS position (if elements exist from sensor panel)
         const currentLatEl = document.getElementById('current-lat');
         const currentLonEl = document.getElementById('current-lon');
         const currentAltEl = document.getElementById('current-alt');
@@ -973,7 +1010,7 @@ class LFSSerialComm {
         if (currentLonEl) currentLonEl.textContent = gpsData.position.longitude.toFixed(6);
         if (currentAltEl) currentAltEl.textContent = gpsData.position.altitude.toFixed(2);
 
-        // Update home GPS position
+        // Update home GPS position (if elements exist from sensor panel)
         const homeLatEl = document.getElementById('home-lat');
         const homeLonEl = document.getElementById('home-lon');
         const homeAltEl = document.getElementById('home-alt');
@@ -1022,11 +1059,36 @@ class LFSSerialComm {
             }
         });
 
+        // Reset GPS panel data
+        const gpsPanelElements = ['gps-sats', 'gps-pdop', 'gps-3d-acc', 'gps-2d-acc'];
+        gpsPanelElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                switch(id) {
+                    case 'gps-sats':
+                        el.textContent = '0/0';
+                        break;
+                    case 'gps-pdop':
+                        el.textContent = '--';
+                        break;
+                    case 'gps-3d-acc':
+                    case 'gps-2d-acc':
+                        el.textContent = '--';
+                        break;
+                }
+            }
+        });
+
         // Reset SD card status
         const sdStatusEl = document.getElementById('sd-status');
         if (sdStatusEl) {
             sdStatusEl.textContent = 'FAIL';
             sdStatusEl.className = 'sensor-status failure';
+        }
+
+        // Reset velocity indicator
+        if (typeof velocityIndicator !== 'undefined') {
+            velocityIndicator.updateVelocity(0);
         }
     }
 }
