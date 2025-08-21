@@ -134,7 +134,7 @@ class ControlPlots {
         
         // Add axis labels
         ctx.fillStyle = '#aaa';
-        ctx.font = '12px Arial';
+        ctx.font = '12px Futura Md BT';
         ctx.fillText('Y (m)', canvas.width - 35, centerY - 5);
         ctx.fillText('Z (m)', centerX + 5, 15);
     }
@@ -182,7 +182,7 @@ class ControlPlots {
         
         // Add axis labels
         ctx.fillStyle = '#aaa';
-        ctx.font = '12px Arial';
+        ctx.font = '12px Futura Md BT';
         ctx.fillText('Yaw (°)', canvas.width - 45, centerY - 5);
         ctx.fillText('Pitch (°)', centerX + 5, 15);
     }
@@ -218,7 +218,7 @@ class ControlPlots {
         
         // Draw grid lines and labels for specific tick positions
         ctx.fillStyle = '#666';
-        ctx.font = '10px Arial';
+        ctx.font = '10px Futura Md BT';
         ctx.textAlign = 'center';
         
         for (const value of tickPositions) {
@@ -272,8 +272,27 @@ class ControlPlots {
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Draw grid with units (degrees) - fixed grid, no rotation
+        // Get current roll angle for grid and label rotation
+        const euler = this.quaternionToEuler(this.quaternion);
+        const rollAngle = -euler.roll; // Negative for counterclockwise rotation with positive roll
+        
+        // Save context for rotation
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.rotate(rollAngle);
+        ctx.translate(-centerX, -centerY);
+        
+        // Draw grid with units (degrees) - this will be rotated
         this.drawRotatedGridWithUnits(ctx, canvas, centerX, centerY, this.gimbalScale);
+        
+        // Add axis labels (rotated with the grid)
+        ctx.fillStyle = '#aaa';
+        ctx.font = '12px Futura Md BT';
+        ctx.fillText('Yaw (°)', canvas.width - 45, centerY - 5);
+        ctx.fillText('Pitch (°)', centerX + 5, 15);
+        
+        // Restore context
+        ctx.restore();
         
         // Convert telemetry data and map to proper axes (X=up, Y=yaw, Z=pitch)
         const misalignBody = { 
@@ -316,12 +335,6 @@ class ControlPlots {
         ctx.moveTo(misalignX, misalignY);
         ctx.lineTo(commandsX, commandsY);
         ctx.stroke();
-        
-        // Add axis labels (not rotated)
-        ctx.fillStyle = '#aaa';
-        ctx.font = '12px Arial';
-        ctx.fillText('Yaw (°)', canvas.width - 45, centerY - 5);
-        ctx.fillText('Pitch (°)', centerX + 5, 15);
     }
     
     drawRotatedGridWithUnits(ctx, canvas, centerX, centerY, scale) {
@@ -346,7 +359,7 @@ class ControlPlots {
         
         // Draw grid lines and labels for specific tick positions
         ctx.fillStyle = '#666';
-        ctx.font = '10px Arial';
+        ctx.font = '10px Futura Md BT';
         ctx.textAlign = 'center';
         
         for (const value of tickPositions) {
