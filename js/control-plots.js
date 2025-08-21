@@ -272,43 +272,30 @@ class ControlPlots {
         // Clear canvas
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         
-        // Get current roll angle for grid rotation
-        const euler = this.quaternionToEuler(this.quaternion);
-        const rollAngle = -euler.roll; // Negative for counterclockwise rotation with positive roll
-        
-        // Save context for rotation
-        ctx.save();
-        ctx.translate(centerX, centerY);
-        ctx.rotate(rollAngle);
-        ctx.translate(-centerX, -centerY);
-        
-        // Draw grid with units (degrees) - this will be rotated
+        // Draw grid with units (degrees) - fixed grid, no rotation
         this.drawRotatedGridWithUnits(ctx, canvas, centerX, centerY, this.gimbalScale);
         
-        // Restore context
-        ctx.restore();
-        
-        // Convert telemetry data from radians to degrees and transform to world frame
+        // Convert telemetry data and map to proper axes (X=up, Y=yaw, Z=pitch)
         const misalignBody = { 
-            x: this.misalignments.yaw, 
-            y: this.misalignments.pitch, 
-            z: 0 
+            x: 0,  // No X component for yaw/pitch
+            y: this.misalignments.yaw,    // Yaw maps to Y axis
+            z: this.misalignments.pitch   // Pitch maps to Z axis
         };
         const commandsBody = { 
-            x: this.rollMixedCommands.yaw, 
-            y: this.rollMixedCommands.pitch, 
-            z: 0 
+            x: 0,  // No X component for yaw/pitch
+            y: this.rollMixedCommands.yaw,    // Yaw maps to Y axis
+            z: this.rollMixedCommands.pitch   // Pitch maps to Z axis
         };
         
         // Transform from body frame to world frame using quaternion
         const misalignWorld = this.rotateVectorByQuaternion(misalignBody, this.quaternion);
         const commandsWorld = this.rotateVectorByQuaternion(commandsBody, this.quaternion);
         
-        // Convert to screen coordinates using the gimbal scale (already in radians)
-        const misalignX = centerX + misalignWorld.x * this.gimbalScale;
-        const misalignY = centerY - misalignWorld.y * this.gimbalScale; // Y flipped for screen coords
-        const commandsX = centerX + commandsWorld.x * this.gimbalScale;
-        const commandsY = centerY - commandsWorld.y * this.gimbalScale;
+        // Convert to screen coordinates using Y and Z components (yaw=horizontal, pitch=vertical)
+        const misalignX = centerX + misalignWorld.y * this.gimbalScale;  // Yaw (Y) -> horizontal
+        const misalignY = centerY - misalignWorld.z * this.gimbalScale;  // Pitch (Z) -> vertical (flipped)
+        const commandsX = centerX + commandsWorld.y * this.gimbalScale;  // Yaw (Y) -> horizontal
+        const commandsY = centerY - commandsWorld.z * this.gimbalScale;  // Pitch (Z) -> vertical (flipped)
         
         // Draw misalignment point (red circle)
         ctx.fillStyle = '#ff3366';
