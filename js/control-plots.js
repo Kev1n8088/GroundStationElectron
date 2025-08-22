@@ -297,13 +297,13 @@ class ControlPlots {
         // Convert telemetry data and map to proper axes (X=up, Y=yaw, Z=pitch)
         const misalignBody = { 
             x: 0,  // No X component for yaw/pitch
-            y: this.misalignments.yaw,    // Yaw maps to Y axis
-            z: this.misalignments.pitch   // Pitch maps to Z axis
+            y: this.misalignments.pitch,   
+            z: this.misalignments.yaw
         };
         const commandsBody = { 
-            x: 0,  // No X component for yaw/pitch
-            y: this.rollMixedCommands.yaw,    // Yaw maps to Y axis
-            z: this.rollMixedCommands.pitch   // Pitch maps to Z axis
+            x: 0,  // No X component for yaw/pitch  
+            y: this.rollMixedCommands.pitch,
+            z: this.rollMixedCommands.yaw
         };
         
         // Transform from body frame to world frame using quaternion
@@ -311,10 +311,10 @@ class ControlPlots {
         const commandsWorld = this.rotateVectorByQuaternion(commandsBody, this.quaternion);
         
         // Convert to screen coordinates using Y and Z components (yaw=horizontal, pitch=vertical)
-        const misalignX = centerX + misalignWorld.y * this.gimbalScale;  // Yaw (Y) -> horizontal
-        const misalignY = centerY - misalignWorld.z * this.gimbalScale;  // Pitch (Z) -> vertical (flipped)
-        const commandsX = centerX + commandsWorld.y * this.gimbalScale;  // Yaw (Y) -> horizontal
-        const commandsY = centerY - commandsWorld.z * this.gimbalScale;  // Pitch (Z) -> vertical (flipped)
+        const misalignX = centerX - misalignWorld.z * this.gimbalScale;  // Yaw (Y) -> horizontal
+        const misalignY = centerY - misalignWorld.y * this.gimbalScale;  // Pitch (Z) -> vertical (flipped)
+        const commandsX = centerX - commandsWorld.z * this.gimbalScale;  // Yaw (Y) -> horizontal
+        const commandsY = centerY - commandsWorld.y * this.gimbalScale;  // Pitch (Z) -> vertical (flipped)
         
         // Draw misalignment point (red circle)
         ctx.fillStyle = '#ff3366';

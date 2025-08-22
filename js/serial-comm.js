@@ -536,25 +536,30 @@ class LFSSerialComm {
         const satsInView = data.readUInt8(offset); offset += 1;
         const satsUsed = data.readUInt8(offset); offset += 1;
         const gpsQuality = data.readUInt8(offset); offset += 1;
-        const pdop = data.readFloatLE(offset); offset += 4;
-        const hdop = data.readFloatLE(offset); offset += 4;
-        const vdop = data.readFloatLE(offset); offset += 4;
         const currentLat = data.readFloatLE(offset); offset += 4;
         const currentLon = data.readFloatLE(offset); offset += 4;
         const currentAlt = data.readFloatLE(offset); offset += 4;
+        const accuracy2D = data.readFloatLE(offset); offset += 4;
+        const accuracy3D = data.readFloatLE(offset); offset += 4;
+        const pdop = data.readFloatLE(offset); offset += 4;
+        const gps_ms = data.readUInt32LE(offset); offset += 4;
+        const lastRTCM = data.readUInt32LE(offset); offset += 4;
         const homeLat = data.readFloatLE(offset); offset += 4;
         const homeLon = data.readFloatLE(offset); offset += 4;
         const homeAlt = data.readFloatLE(offset); offset += 4;
-        const lastRTCM = data.readFloatLE(offset); offset += 4;
-        const accuracy3D = data.readFloatLE(offset); offset += 4;
-        const accuracy2D = data.readFloatLE(offset); offset += 4;
+        const downVel = data.readFloatLE(offset); offset += 4;
+        const eastVel = data.readFloatLE(offset); offset += 4;
+        const northVel = data.readFloatLE(offset); offset += 4;
+        const relX = data.readFloatLE(offset); offset += 4;
+        const relY = data.readFloatLE(offset); offset += 4;
+        const relZ = data.readFloatLE(offset); offset += 4;
         const vehicleMs = data.readUInt32LE(offset); offset += 4;
         const downCount = data.readUInt32LE(offset);
 
         const gpsData = {
             satellites: { inView: satsInView, used: satsUsed },
             quality: gpsQuality,
-            dilutionOfPrecision: { position: pdop, horizontal: hdop, vertical: vdop },
+            dilutionOfPrecision: { position: pdop},
             position: { latitude: currentLat, longitude: currentLon, altitude: currentAlt },
             homePosition: { latitude: homeLat, longitude: homeLon, altitude: homeAlt },
             lastRTCM,
