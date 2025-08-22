@@ -569,9 +569,50 @@ canvas {
 }
 
 .future-content-area {
-    height: 50%;
+    height: 20%;
     background: #0d1117;
     /* Reserved space for future features */
+}
+
+/* Flight Data Chart Area */
+.flight-data-area {
+    height: 30%;
+    background: #0d1117;
+    display: flex;
+    flex-direction: column;
+    border-bottom: 2px solid #30363d;
+    padding: 15px;
+    gap: 10px;
+}
+
+.flight-data-header {
+    font-size: 16px;
+    color: #58a6ff;
+    margin: 0;
+    border-bottom: 1px solid #30363d;
+    padding-bottom: 8px;
+    font-family: 'Futura Md BT', sans-serif;
+    flex-shrink: 0;
+}
+
+.flight-chart-container {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.flight-chart-canvas {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 4px;
+    max-width: 100%;
+    max-height: 100%;
+    display: block;
+    position: relative;
+    z-index: 1;
 }
 
 .gps-panel {
@@ -653,9 +694,55 @@ canvas {
     font-family: 'Courier New', monospace;
 }
 
-.remaining-content {
+.kalman-std-section {
+    flex: 1;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-sizing: border-box;
+}
+
+.kalman-std-header {
+    font-size: 16px;
+    color: #58a6ff;
+    margin: 0;
+    border-bottom: 1px solid #30363d;
+    padding-bottom: 6px;
+    font-family: 'Futura Md BT', sans-serif;
+    flex-shrink: 0;
+    height: 24px;
+}
+
+.kalman-std-panel {
     flex: 1;
     background: #0d1117;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+    height: calc(100% - 32px);
+}
+
+.kalman-std-content {
+    flex: 1;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    height: 100%;
+}
+
+.kalman-std-container {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    width: 100%;
+}
+
+.kalman-std-canvas {
+    flex: 1;
+    max-width: 100%;
+    max-height: 100%;
 }
 
 /* GPS Map Marker Styles */

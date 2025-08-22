@@ -23,3 +23,6 @@ release/
 temp/
 *.asar
 !*.asar.unpacked # If you have unpacked asar files that need to be versioned
+
+#secrets
+*.ini

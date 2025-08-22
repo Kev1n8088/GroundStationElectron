@@ -29,6 +29,20 @@ const MESSAGE_TYPES = {
     KALMAN: 159
 };
 
+// Command Types for uplink
+const COMMAND_TYPES = {
+    PING: 10,
+    ARM: 11,
+    DISARM: 12,
+    WHEEL_TEST: 20,
+    STAB_TEST: 21,
+    POS_TEST: 22,
+    TRAJ_TEST: 23,
+    MISALIGN_TEST: 24,
+    TEST_PREP: 25,
+    PYRO_TEST: 26  // Added pyro test command
+};
+
 // Vehicle state enum mapping
 const VEHICLE_STATES = {
     0: 'DISARMED',
@@ -100,6 +114,18 @@ class LFSSerialComm {
         this.port = null;
         this.isConnected = false;
         this.availablePorts = [];
+        
+        // Store latest telemetry values for cross-referencing between message types
+        this.lastAltitude = 0;
+        this.lastTimeSinceLaunch = 0;
+        this.lastVehicleStateValue = 0;
+        this.lastThrust = 0;
+        
+        // Command packet creation
+        this.commandMessageId = 0;
+        this.payloadBuffer = Buffer.alloc(255);
+        this.packetBuffer = Buffer.alloc(255);
+        this.payloadAndChecksumBuffer = Buffer.alloc(255);
     }
 
     async listPorts() {
@@ -433,12 +459,22 @@ class LFSSerialComm {
             downCount
         };
 
+        // Store latest values for cross-referencing
+        this.lastAltitude = posY; // Y is altitude
+        this.lastTimeSinceLaunch = timeSinceLaunch;
+        this.lastVehicleStateValue = vehicleState;
+
         console.log('State Telemetry:', telemetryData);
         this.updateDisplaysWithTelemetry(telemetryData);
         this.updateVehicleState(vehicleState);
         this.updateLaunchTime(timeSinceLaunch);
         getControlPlots().updateCurrentPosition(telemetryData.position);
         getControlPlots().updateCurrentQuaternion(telemetryData.quaternion);
+        
+        // Update flight data chart with altitude and time since launch
+        if (typeof updateFlightChart !== 'undefined') {
+            updateFlightChart(this.lastThrust, this.lastAltitude, this.lastTimeSinceLaunch, this.lastVehicleStateValue);
+        }
         
         // Update velocity indicator with vertical velocity (Z component)
         if (typeof velocityIndicator !== 'undefined') {
@@ -590,6 +626,9 @@ class LFSSerialComm {
             downCount
         };
 
+        // Store latest thrust value
+        this.lastThrust = thrust;
+
         console.log('Lander Data:', landerData);
         this.updateBatteryVoltage(VBAT);
         this.updatePyroStatus(pyroStatus);
@@ -597,6 +636,11 @@ class LFSSerialComm {
         getControlPlots().updateTargetPosition(landerData.target);
         getControlPlots().updateMisalignments(yawMisalign, pitchMisalign);
         getControlPlots().updateRollMixedCommands(rollMixedYaw, rollMixedPitch);
+        
+        // Update flight data chart with thrust data
+        if (typeof updateFlightChart !== 'undefined') {
+            updateFlightChart(this.lastThrust, this.lastAltitude, this.lastTimeSinceLaunch, this.lastVehicleStateValue);
+        }
         
         // Update wheel speed indicator with roll command data
         if (typeof wheelSpeedIndicator !== 'undefined') {
@@ -646,6 +690,17 @@ class LFSSerialComm {
             vehicleMs,
             downCount
         };
+
+        console.log('Kalman Data:', kalmanData);
+        
+        // Update Kalman standard deviation indicator with uncertainty data
+        if (typeof kalmanStdIndicator !== 'undefined') {
+            kalmanStdIndicator.updateAllStdDevs(
+                kalmanData.uncertainty.position,
+                kalmanData.uncertainty.velocity,
+                kalmanData.uncertainty.acceleration
+            );
+        }
     }
 
     updateDisplaysWithTelemetry(telemetry) {
@@ -895,6 +950,11 @@ class LFSSerialComm {
 
         // Reset sensor panel data
         this.resetSensorPanelData();
+        
+        // Reset flight chart
+        if (typeof clearFlightChart !== 'undefined') {
+            clearFlightChart();
+        }
     }
 
     async sendData(data) {
@@ -917,6 +977,118 @@ class LFSSerialComm {
             return true;
         } catch (error) {
             console.error('Error sending data:', error);
+            return false;
+        }
+    }
+
+    // Pack a command packet according to LFS LINK-80 protocol
+    packCommandPacket(commandType) {
+        // Increment command message ID (wraps at 255)
+        this.commandMessageId = (this.commandMessageId + 1) & 0xFF;
+        
+        // Create payload: [reserved_byte][command_type][message_id]
+        let offset = 0;
+        this.payloadBuffer[offset++] = 0; // Reserved addressing byte
+        this.payloadBuffer[offset++] = commandType; // Command type enum
+        this.payloadBuffer[offset++] = this.commandMessageId; // Message ID
+        
+        const payloadSize = 3;
+        const packetSize = this.packPacket(this.payloadBuffer, payloadSize);
+        
+        if (packetSize > 0) {
+            return this.packetBuffer.slice(0, packetSize);
+        }
+        return null;
+    }
+
+    // Pack a complete LFS LINK-80 packet with COBS encoding and CRC
+    packPacket(payload, payloadSize) {
+        if (payloadSize > 251) { // MAX_PACKET_SIZE - HEADER_SIZE - CHECKSUM_SIZE
+            return 0;
+        }
+        
+        // Calculate CRC32 of original payload
+        const crc = this.calculateCRC32(payload.slice(0, payloadSize));
+        
+        // Create [payload + checksum] section
+        payload.copy(this.payloadAndChecksumBuffer, 0, 0, payloadSize);
+        
+        // Append checksum in little endian format (consistent with protocol)
+        this.payloadAndChecksumBuffer.writeUInt32LE(crc, payloadSize);
+        
+        const totalDataSize = payloadSize + CHECKSUM_SIZE;
+        const requiredSize = HEADER_SIZE + totalDataSize;
+        
+        if (requiredSize > MAX_PACKET_SIZE) {
+            return 0;
+        }
+        
+        // Find COBS offset (first occurrence of 0xAA in [payload + checksum])
+        let cobsOffset = 0;
+        for (let i = 0; i < totalDataSize; i++) {
+            if (this.payloadAndChecksumBuffer[i] === PACKET_HEADER) {
+                cobsOffset = i;
+                break;
+            }
+        }
+        
+        // Apply COBS encoding if needed
+        if (cobsOffset > 0) {
+            this.applyCOBSEncoding(this.payloadAndChecksumBuffer, totalDataSize);
+        }
+        
+        // Build final packet
+        let packetPos = 0;
+        this.packetBuffer[packetPos++] = PACKET_HEADER;
+        this.packetBuffer[packetPos++] = totalDataSize;
+        this.packetBuffer[packetPos++] = cobsOffset;
+        
+        // Add COBS-encoded [payload + checksum]
+        this.payloadAndChecksumBuffer.copy(this.packetBuffer, packetPos, 0, totalDataSize);
+        packetPos += totalDataSize;
+        
+        return packetPos;
+    }
+
+    // Apply COBS encoding to buffer
+    applyCOBSEncoding(data, dataSize) {
+        let currentPos = 0;
+        
+        while (currentPos < dataSize) {
+            if (data[currentPos] === PACKET_HEADER) {
+                // Find next 0xAA or end of data
+                let nextAA = currentPos + 1;
+                while (nextAA < dataSize && data[nextAA] !== PACKET_HEADER) {
+                    nextAA++;
+                }
+                
+                if (nextAA < dataSize) {
+                    // Replace current 0xAA with offset to next 0xAA
+                    data[currentPos] = nextAA - currentPos;
+                } else {
+                    // No more 0xAA bytes, replace with 0
+                    data[currentPos] = 0;
+                }
+            }
+            currentPos++;
+        }
+    }
+
+    // Convert buffer to hex string for inspection
+    bufferToHex(buffer) {
+        return Array.from(buffer, byte => byte.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+    }
+
+    // Send a command to the vehicle
+    async sendCommand(commandType) {
+        const packet = this.packCommandPacket(commandType);
+        if (packet) {
+            const hexString = this.bufferToHex(packet);
+            console.log(`Sending command ${commandType}, message ID ${this.commandMessageId}, packet size: ${packet.length}`);
+            console.log(`Command packet hex: ${hexString}`);
+            return await this.sendData(packet);
+        } else {
+            console.error('Failed to create command packet');
             return false;
         }
     }
@@ -1117,21 +1289,65 @@ async function connectSerial() {
 }
 
 async function sendCommand(command) {
-    // TODO: Implement LFS LINK-80 command packets
     console.log('Command requested:', command);
     
-    if (!serialComm.isConnected) {
-        console.log('Command not sent - simulating for demo:', command);
-        // Simulate command for demo purposes
-        const vehicleStatusEl = document.getElementById('vehicle-status');
-        if (vehicleStatusEl) {
-            if (command === 'ARM') {
-                vehicleStatusEl.textContent = 'ARMED';
-            } else if (command === 'DISARM') {
-                vehicleStatusEl.textContent = 'DISARMED';
-            }
-        }
+    // Map command strings to command types
+    let commandType = null;
+    switch (command) {
+        case 'PING':
+            commandType = COMMAND_TYPES.PING;
+            break;
+        case 'ARM':
+            commandType = COMMAND_TYPES.ARM;
+            break;
+        case 'DISARM':
+            commandType = COMMAND_TYPES.DISARM;
+            break;
+        case 'wheeltest':
+            commandType = COMMAND_TYPES.WHEEL_TEST;
+            break;
+        case 'stabtest':
+            commandType = COMMAND_TYPES.STAB_TEST;
+            break;
+        case 'positest':
+            commandType = COMMAND_TYPES.POS_TEST;
+            break;
+        case 'trajtest':
+            commandType = COMMAND_TYPES.TRAJ_TEST;
+            break;
+        case 'misalignTest':
+            commandType = COMMAND_TYPES.MISALIGN_TEST;
+            break;
+        case 'preptest':
+            commandType = COMMAND_TYPES.TEST_PREP;
+            break;
+        case 'pyroTest':
+            commandType = COMMAND_TYPES.PYRO_TEST;
+            break;
+        default:
+            console.error('Unknown command:', command);
+            return false;
     }
+    
+    if (serialComm.isConnected && commandType !== null) {
+        try {
+            const success = await serialComm.sendCommand(commandType);
+            if (success) {
+                console.log(`Command ${command} (type ${commandType}) sent successfully`);
+            } else {
+                console.error(`Failed to send command ${command}`);
+            }
+            return success;
+        } catch (error) {
+            console.error('Error sending command:', error);
+            return false;
+        }
+    } else if (!serialComm.isConnected) {
+        console.warn('Cannot send command: not connected to serial port');
+        return false;
+    }
+    
+    return false;
 }
 
 module.exports = { LFSSerialComm, serialComm, connectSerial, sendCommand };
