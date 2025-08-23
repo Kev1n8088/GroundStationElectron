@@ -20,6 +20,8 @@ const MAX_PACKET_SIZE = 255;
 const HEADER_SIZE = 3;
 const CHECKSUM_SIZE = 4;
 
+
+
 // Message Types
 const MESSAGE_TYPES = {
     // RTCM fragment messages
@@ -119,6 +121,8 @@ function updateTelemetryAge() {
 
 class LFSSerialComm {
     constructor() {
+        this.numAcks = 0;
+        this.numSents = 0;
         this.port = null;
         this.isConnected = false;
         this.availablePorts = [];
@@ -138,6 +142,8 @@ class LFSSerialComm {
         // RTCM functionality
         this.rtcmIdCounter = 0;
         this.rtcmEnabled = false;
+        this.rtcmQueue = [];
+        this.rtcmProcessing = false;
     }
 
     async listPorts() {
@@ -315,7 +321,7 @@ class LFSSerialComm {
             return;
         }
 
-        console.log('Valid LFS packet received, type:', unpacked.messageType);
+        //console.log('Valid LFS packet received, type:', unpacked.messageType);
         lastTelemetryTime = Date.now();
 
         switch (unpacked.messageType) {
@@ -333,6 +339,10 @@ class LFSSerialComm {
                 break;
             case MESSAGE_TYPES.KALMAN:
                 this.handleKalmanData(unpacked.data);
+                break;
+            case 221:
+                this.numAcks += 1;
+                console.log('Received ', this.numAcks, 'for', this.numSents, 'packets sent');
                 break;
             default:
                 console.log('Unknown message type:', unpacked.messageType);
@@ -709,7 +719,7 @@ class LFSSerialComm {
             downCount
         };
 
-        console.log('Kalman Data:', kalmanData);
+        //console.log('Kalman Data:', kalmanData);
         
         // Update Kalman standard deviation indicator with uncertainty data
         if (typeof kalmanStdIndicator !== 'undefined') {
@@ -1150,44 +1160,89 @@ class LFSSerialComm {
     
     // Pack and send RTCM data as LFS LINK-80 packets
     async sendRTCMData(rtcmData) {
-        if (!this.rtcmEnabled || !rtcmData || rtcmData.length === 0) {
+        if (/*!this.rtcmEnabled || */!rtcmData || rtcmData.length === 0) {
             return false;
         }
 
-        // Get unique RTCM ID (0-127)
-        const rtcmId = this.getNextRTCMId();
-        
-        // Maximum payload size per packet = 245 bytes (MAX_PACKET_SIZE - HEADER_SIZE - CHECKSUM_SIZE)
-        // Actual payload = reserved (1) + message_type (1) + rtcm_id (1) + rtcm_fragment_data
-        const maxFragmentSize = 242; // 245 - 3 for reserved/message_type/rtcm_id
-        
-        if (rtcmData.length <= maxFragmentSize) {
-            // Single packet - use message type 55 (RTCM_FINAL)
-            return await this.sendRTCMFragment(rtcmId, rtcmData, MESSAGE_TYPES.RTCM_FINAL);
-        } else {
-            // Multiple packets needed
-            const fragments = this.splitRTCMData(rtcmData, maxFragmentSize);
-            const messageTypes = [
-                MESSAGE_TYPES.RTCM_FRAGMENT_1,
-                MESSAGE_TYPES.RTCM_FRAGMENT_2,
-                MESSAGE_TYPES.RTCM_FRAGMENT_3,
-                MESSAGE_TYPES.RTCM_FRAGMENT_4,
-                MESSAGE_TYPES.RTCM_FINAL
-            ];
-            
-            // Send all fragments
-            for (let i = 0; i < fragments.length; i++) {
-                const messageType = i < messageTypes.length - 1 ? messageTypes[i] : MESSAGE_TYPES.RTCM_FINAL;
-                const success = await this.sendRTCMFragment(rtcmId, fragments[i], messageType);
-                if (!success) {
-                    console.error(`Failed to send RTCM fragment ${i + 1}/${fragments.length}`);
-                    return false;
-                }
-            }
-            
-            console.log(`Successfully sent RTCM data in ${fragments.length} fragments (ID: ${rtcmId})`);
-            return true;
+        // Add to queue instead of processing immediately
+        return new Promise((resolve) => {
+            this.rtcmQueue.push({ data: rtcmData, resolve });
+            this.processRTCMQueue();
+        });
+    }
+    
+    // Process RTCM queue with proper spacing
+    async processRTCMQueue() {
+        if (this.rtcmProcessing || this.rtcmQueue.length === 0) {
+            return;
         }
+        
+        this.rtcmProcessing = true;
+        
+        while (this.rtcmQueue.length > 0) {
+            const { data: rtcmData, resolve } = this.rtcmQueue.shift();
+            
+            try {
+                // Get unique RTCM ID (0-127)
+                const rtcmId = this.getNextRTCMId();
+                
+                // Maximum payload size per packet = 245 bytes (MAX_PACKET_SIZE - HEADER_SIZE - CHECKSUM_SIZE)
+                // Actual payload = reserved (1) + message_type (1) + rtcm_id (1) + rtcm_fragment_data
+                const maxFragmentSize = 242; // 245 - 3 for reserved/message_type/rtcm_id
+                this.numSents += 1;
+                
+                let success = false;
+                
+                if (rtcmData.length <= maxFragmentSize) {
+                    // Single packet - use message type 55 (RTCM_FINAL)
+                    success = await this.sendRTCMFragment(rtcmId, rtcmData, MESSAGE_TYPES.RTCM_FINAL);
+                } else {
+                    // Multiple packets needed
+                    const fragments = this.splitRTCMData(rtcmData, maxFragmentSize);
+                    const messageTypes = [
+                        MESSAGE_TYPES.RTCM_FRAGMENT_1,
+                        MESSAGE_TYPES.RTCM_FRAGMENT_2,
+                        MESSAGE_TYPES.RTCM_FRAGMENT_3,
+                        MESSAGE_TYPES.RTCM_FRAGMENT_4,
+                        MESSAGE_TYPES.RTCM_FINAL
+                    ];
+                    
+                    success = true;
+                    // Send all fragments with spacing
+                    for (let i = 0; i < fragments.length; i++) {
+                        const messageType = i < messageTypes.length - 1 ? messageTypes[i] : MESSAGE_TYPES.RTCM_FINAL;
+                        const fragmentSuccess = await this.sendRTCMFragment(rtcmId, fragments[i], messageType);
+                        if (!fragmentSuccess) {
+                            console.error(`Failed to send RTCM fragment ${i + 1}/${fragments.length}`);
+                            success = false;
+                            break;
+                        }
+                        
+                        // Add spacing between fragments (except for the last one)
+                        if (i < fragments.length - 1) {
+                            await new Promise(resolve => setTimeout(resolve, 50));
+                        }
+                    }
+                    
+                    if (success) {
+                        console.log(`Successfully sent RTCM data in ${fragments.length} fragments (ID: ${rtcmId})`);
+                    }
+                }
+                
+                resolve(success);
+                
+                // Add spacing between different RTCM messages
+                if (this.rtcmQueue.length > 0) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+                
+            } catch (error) {
+                console.error('Error processing RTCM data:', error);
+                resolve(false);
+            }
+        }
+        
+        this.rtcmProcessing = false;
     }
     
     // Split RTCM data into fragments
@@ -1226,9 +1281,15 @@ class LFSSerialComm {
         if (packetSize > 0) {
             const packet = this.packetBuffer.slice(0, packetSize);
             const hexString = this.bufferToHex(packet);
-            console.log(`Sending RTCM fragment (ID: ${rtcmId}, type: ${messageType}, size: ${fragmentData.length})`);
+            //console.log(`Sending RTCM fragment (ID: ${rtcmId}, type: ${messageType}, size: ${fragmentData.length})`);
             console.log(`RTCM packet hex: ${hexString}`);
-            return await this.sendData(packet);
+            
+            const result = await this.sendData(packet);
+            
+            // Add small delay after sending packet to ensure transmission completes
+            await new Promise(resolve => setTimeout(resolve, 10));
+            
+            return result;
         } else {
             console.error('Failed to create RTCM packet');
             return false;
