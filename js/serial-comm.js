@@ -576,6 +576,7 @@ class LFSSerialComm {
             homePosition: { latitude: homeLat, longitude: homeLon, altitude: homeAlt },
             lastRTCM,
             accuracy: { threeD: accuracy3D, twoD: accuracy2D },
+            relPos: { x: relX, y: relY, z: relZ },
             vehicleMs,
             downCount
         };
@@ -708,7 +709,7 @@ class LFSSerialComm {
             downCount
         };
 
-        //console.log('Kalman Data:', kalmanData);
+        console.log('Kalman Data:', kalmanData);
         
         // Update Kalman standard deviation indicator with uncertainty data
         if (typeof kalmanStdIndicator !== 'undefined') {
