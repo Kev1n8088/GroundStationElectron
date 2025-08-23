@@ -56,29 +56,11 @@ class GroundStationApp {
             if (event.target.tagName === 'INPUT') return;
             
             switch (event.code) {
-                case 'Space':
-                    event.preventDefault();
-                    toggleSimulation();
-                    break;
-                    
+                
                 case 'KeyC':
                     if (event.ctrlKey) {
                         event.preventDefault();
                         connectSerial();
-                    }
-                    break;
-                    
-                case 'KeyH':
-                    if (event.ctrlKey) {
-                        event.preventDefault();
-                        returnToHome();
-                    }
-                    break;
-                    
-                case 'KeyL':
-                    if (event.ctrlKey) {
-                        event.preventDefault();
-                        loadObjModel();
                     }
                     break;
                     
@@ -103,9 +85,6 @@ class GroundStationApp {
                     }
                     break;
                     
-                case 'Escape':
-                    simulation.stop();
-                    break;
             }
         });
     }
@@ -118,26 +97,11 @@ class GroundStationApp {
                 case 'Connect Serial':
                     button.title = 'Connect to serial port (Ctrl+C)';
                     break;
-                case 'Load 3D Model':
-                    button.title = 'Load OBJ 3D model (Ctrl+L)';
-                    break;
                 case 'ARM Vehicle':
                     button.title = 'ARM the vehicle (Ctrl+A)';
                     break;
                 case 'DISARM Vehicle':
                     button.title = 'DISARM the vehicle (Ctrl+D)';
-                    break;
-                case 'Return Home':
-                    button.title = 'Return to home position (Ctrl+H)';
-                    break;
-                case 'Toggle Simulation':
-                    button.title = 'Start/stop simulation (Space)';
-                    break;
-                case 'Set Position':
-                    button.title = 'Manually set vehicle position';
-                    break;
-                case 'Update Scale':
-                    button.title = 'Update 3D model scale';
                     break;
             }
         });
@@ -210,14 +174,10 @@ class GroundStationApp {
         //clearCharts();
         
         // Reset vehicle position
-        vehicleState.position = { x: 0, y: 5, z: 0 };
-        vehicleState.euler = { roll: 0, pitch: 0, yaw: 0 };
+        vehicleState.position = { x: 0, y: 0, z: 0 };
         
         // Update displays
-        if (simulation.isRunning) {
-            simulation.updateDisplays();
-        }
-        
+
         console.log('View reset to defaults');
     }
 
@@ -293,7 +253,6 @@ class GroundStationApp {
     onBeforeUnload() {
         // Cleanup before app closes
         this.stopAnimationLoop();
-        simulation.stop();
         if (serialComm.isConnected) {
             serialComm.disconnect();
         }
@@ -305,7 +264,6 @@ class GroundStationApp {
         const data = {
             timestamp: new Date().toISOString(),
             vehicleState: { ...vehicleState }
-            //simulationStatus: simulation.getStatus(),
             //chartData: chartManager.exportChartData()
         };
         
@@ -352,9 +310,7 @@ function exportTelemetry() {
 if (process.argv && process.argv.includes('--dev')) {
     window.app = app;
     window.threeScene = threeScene;
-    //window.simulation = simulation;
     window.serialComm = serialComm;
-    //window.chartManager = chartManager;
     window.modelLoader = modelLoader;
     
     console.log('Development mode: Global objects exposed to window');

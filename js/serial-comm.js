@@ -151,7 +151,7 @@ class LFSSerialComm {
         }
     }
 
-    async connect(portPath = null, baudRate = 115200) {
+    async connect(portPath = null, baudRate = 57600) {
         try {
             // If no port specified, try to find one automatically
             if (!portPath) {
@@ -718,6 +718,38 @@ class LFSSerialComm {
                 kalmanData.uncertainty.acceleration
             );
         }
+        
+        // Update Kalman measurements display
+        this.updateKalmanMeasurements(kalmanData.measurements);
+    }
+
+    updateKalmanMeasurements(measurements) {
+        // Update position measurements
+        const kalmanPosX = document.getElementById('kalman-pos-x');
+        const kalmanPosY = document.getElementById('kalman-pos-y');
+        const kalmanPosZ = document.getElementById('kalman-pos-z');
+        
+        if (kalmanPosX) kalmanPosX.textContent = measurements.position.x.toFixed(3);
+        if (kalmanPosY) kalmanPosY.textContent = measurements.position.y.toFixed(3);
+        if (kalmanPosZ) kalmanPosZ.textContent = measurements.position.z.toFixed(3);
+        
+        // Update velocity measurements
+        const kalmanVelX = document.getElementById('kalman-vel-x');
+        const kalmanVelY = document.getElementById('kalman-vel-y');
+        const kalmanVelZ = document.getElementById('kalman-vel-z');
+        
+        if (kalmanVelX) kalmanVelX.textContent = measurements.velocity.x.toFixed(3);
+        if (kalmanVelY) kalmanVelY.textContent = measurements.velocity.y.toFixed(3);
+        if (kalmanVelZ) kalmanVelZ.textContent = measurements.velocity.z.toFixed(3);
+        
+        // Update acceleration measurements
+        const kalmanAccX = document.getElementById('kalman-acc-x');
+        const kalmanAccY = document.getElementById('kalman-acc-y');
+        const kalmanAccZ = document.getElementById('kalman-acc-z');
+        
+        if (kalmanAccX) kalmanAccX.textContent = measurements.acceleration.x.toFixed(3);
+        if (kalmanAccY) kalmanAccY.textContent = measurements.acceleration.y.toFixed(3);
+        if (kalmanAccZ) kalmanAccZ.textContent = measurements.acceleration.z.toFixed(3);
     }
 
     updateDisplaysWithTelemetry(telemetry) {
@@ -726,7 +758,7 @@ class LFSSerialComm {
         if (typeof vehicleState !== 'undefined') {
             vehicleState.quaternion = telemetry.quaternion;
             //console.log("Vehicle state updated with telemetry:", telemetry.quaternion);
-            // vehicleState.position = telemetry.position;
+            vehicleState.position = telemetry.position;
             // vehicleState.velocity = telemetry.velocity;
             // vehicleState.acceleration = telemetry.acceleration;
         }
@@ -967,6 +999,9 @@ class LFSSerialComm {
 
         // Reset sensor panel data
         this.resetSensorPanelData();
+        
+        // Reset Kalman measurements
+        this.resetKalmanMeasurements();
         
         // Reset flight chart
         if (typeof clearFlightChart !== 'undefined') {
@@ -1392,6 +1427,29 @@ class LFSSerialComm {
         if (typeof velocityIndicator !== 'undefined') {
             velocityIndicator.updateVelocity(0);
         }
+    }
+
+    resetKalmanMeasurements() {
+        // Reset position measurements
+        const kalmanPosElements = ['kalman-pos-x', 'kalman-pos-y', 'kalman-pos-z'];
+        kalmanPosElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '0.000';
+        });
+
+        // Reset velocity measurements
+        const kalmanVelElements = ['kalman-vel-x', 'kalman-vel-y', 'kalman-vel-z'];
+        kalmanVelElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '0.000';
+        });
+
+        // Reset acceleration measurements
+        const kalmanAccElements = ['kalman-acc-x', 'kalman-acc-y', 'kalman-acc-z'];
+        kalmanAccElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = '0.000';
+        });
     }
 }
 

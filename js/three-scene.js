@@ -1,9 +1,8 @@
 // Three.js scene management
 let scene, camera, renderer, vehicle, ground;
 let vehicleState = {
-    position: { x: 0, y: 0, z: 0 },
+    position: { x: 0, y: 0, z: 0 }, // in vehicle convention, x vertical
     quaternion: { x: 0, y: 0, z: 0, w: 1 },
-    euler: { roll: 0, pitch: 0, yaw: 0 }
 };
 
 class ThreeScene {
@@ -247,7 +246,7 @@ class ThreeScene {
         if (!this.vehicle) return;
 
         // Update position
-        this.vehicle.position.copy(vehicleState.position);
+        this.vehicle.position.set(vehicleState.position.y, vehicleState.position.x, vehicleState.position.z);
 
         const upOffset = new THREE.Quaternion();
         upOffset.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2); // rotate -90° about X to map +Z to +Y
@@ -257,12 +256,7 @@ class ThreeScene {
 
         const finalQuat = q.clone().premultiply(upOffset);
         this.vehicle.quaternion.copy(finalQuat);
-        //this.vehicle.quaternion.copy(q);
 
-        // Update rotation using Euler angles
-        // this.vehicle.rotation.x = vehicleState.euler.pitch * Math.PI / 180;
-        // this.vehicle.rotation.y = vehicleState.euler.yaw * Math.PI / 180;
-        // this.vehicle.rotation.z = vehicleState.euler.roll * Math.PI / 180;
     }
 
     replaceVehicle(newVehicle) {

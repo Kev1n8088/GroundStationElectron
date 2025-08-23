@@ -341,7 +341,63 @@
             
             <!-- Future Content Area (20% of total height - reserved for expansion) -->
             <div class="future-content-area">
-                <!-- Reserved space for future features -->
+                <!-- Kalman Measurements Display -->
+                <div class="kalman-measurements">
+                    <h3 class="kalman-measurements-header">Kalman Filter Measurements</h3>
+                    <div class="kalman-measurements-content">
+                        <div class="measurement-section">
+                            <h4>Position (m)</h4>
+                            <div class="measurement-values">
+                                <div class="measurement-item">
+                                    <span>X:</span>
+                                    <span id="kalman-pos-x" class="measurement-value">0.000</span>
+                                </div>
+                                <div class="measurement-item">
+                                    <span>Y:</span>
+                                    <span id="kalman-pos-y" class="measurement-value">0.000</span>
+                                </div>
+                                <div class="measurement-item">
+                                    <span>Z:</span>
+                                    <span id="kalman-pos-z" class="measurement-value">0.000</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="measurement-section">
+                            <h4>Velocity (m/s)</h4>
+                            <div class="measurement-values">
+                                <div class="measurement-item">
+                                    <span>X:</span>
+                                    <span id="kalman-vel-x" class="measurement-value">0.000</span>
+                                </div>
+                                <div class="measurement-item">
+                                    <span>Y:</span>
+                                    <span id="kalman-vel-y" class="measurement-value">0.000</span>
+                                </div>
+                                <div class="measurement-item">
+                                    <span>Z:</span>
+                                    <span id="kalman-vel-z" class="measurement-value">0.000</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="measurement-section">
+                            <h4>Acceleration (m/s²)</h4>
+                            <div class="measurement-values">
+                                <div class="measurement-item">
+                                    <span>X:</span>
+                                    <span id="kalman-acc-x" class="measurement-value">0.000</span>
+                                </div>
+                                <div class="measurement-item">
+                                    <span>Y:</span>
+                                    <span id="kalman-acc-y" class="measurement-value">0.000</span>
+                                </div>
+                                <div class="measurement-item">
+                                    <span>Z:</span>
+                                    <span id="kalman-acc-z" class="measurement-value">0.000</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -351,7 +407,6 @@
     <script src="js/charts.js"></script>
     <script src="js/serial-comm.js"></script>
     <script src="js/model-loader.js"></script>
-    <script src="js/simulation.js"></script>
     <script src="js/app.js"></script>
     <script src="js/control-plots.js"></script>
     <script src="js/gps-map.js"></script>
