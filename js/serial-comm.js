@@ -861,14 +861,14 @@ class LFSSerialComm {
         const rtcmAgeElement = document.getElementById('rtcm-age');
         if (rtcmAgeElement) {
             if (lastRTCM > 0) {
-                const ageSeconds = (Date.now() - lastRTCM) / 1000;
+                const ageSeconds = lastRTCM / 1000;
                 rtcmAgeElement.textContent = `${ageSeconds.toFixed(0)}s`;
                 
                 // Color code based on age
                 rtcmAgeElement.className = 'status-value';
-                if (ageSeconds < 10) {
+                if (ageSeconds < 2) {
                     rtcmAgeElement.classList.add('good');
-                } else if (ageSeconds < 30) {
+                } else if (ageSeconds < 5) {
                     rtcmAgeElement.classList.add('warning');
                 } else {
                     rtcmAgeElement.classList.add('bad');
