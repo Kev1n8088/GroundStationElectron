@@ -373,6 +373,80 @@
             console.log('Entering test state:', state);
             sendCommand(state);
         }
+
+        // RTCM/NTRIP functionality
+        async function initializeRTCM() {
+            const rtcmToggle = document.getElementById('rtcm-toggle');
+            
+            // Check NTRIP availability
+            const status = await window.require('electron').ipcRenderer.invoke('ntrip-status');
+            
+            if (!status.available) {
+                rtcmToggle.disabled = true;
+                rtcmToggle.parentElement.title = 'NTRIP client not available. Install with: npm install ntrip-client';
+                console.log('NTRIP client not available');
+                return;
+            }
+            
+            // Set initial state
+            rtcmToggle.checked = status.connected;
+            serialComm.setRTCMEnabled(status.connected);
+            
+            // Handle toggle changes
+            rtcmToggle.addEventListener('change', async () => {
+                const enabled = rtcmToggle.checked;
+                
+                try {
+                    if (enabled) {
+                        const success = await window.require('electron').ipcRenderer.invoke('ntrip-start');
+                        if (success) {
+                            serialComm.setRTCMEnabled(true);
+                            console.log('NTRIP client started successfully');
+                        } else {
+                            rtcmToggle.checked = false;
+                            console.error('Failed to start NTRIP client');
+                        }
+                    } else {
+                        await window.require('electron').ipcRenderer.invoke('ntrip-stop');
+                        serialComm.setRTCMEnabled(false);
+                        console.log('NTRIP client stopped');
+                    }
+                } catch (error) {
+                    console.error('Error toggling NTRIP:', error);
+                    rtcmToggle.checked = false;
+                    serialComm.setRTCMEnabled(false);
+                }
+            });
+        }
+
+        // Handle RTCM data from main process
+        function setupRTCMListeners() {
+            const { ipcRenderer } = window.require('electron');
+            
+            ipcRenderer.on('rtcm-data', (event, data) => {
+                console.log(`Received RTCM data: ${data.length} bytes at ${data.timestamp}`);
+                
+                // Convert array back to Buffer and send via serial
+                const rtcmBuffer = Buffer.from(data.data);
+                if (serialComm && serialComm.rtcmEnabled) {
+                    serialComm.sendRTCMData(rtcmBuffer);
+                }
+            });
+            
+            ipcRenderer.on('ntrip-status', (event, status) => {
+                const rtcmToggle = document.getElementById('rtcm-toggle');
+                if (rtcmToggle && !status.connected) {
+                    rtcmToggle.checked = false;
+                    serialComm.setRTCMEnabled(false);
+                }
+            });
+        }
+
+        // Initialize RTCM functionality when page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeRTCM();
+            setupRTCMListeners();
+        });
     </script>
 </body>
 </html>

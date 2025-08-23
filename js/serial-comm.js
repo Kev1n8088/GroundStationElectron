@@ -22,6 +22,14 @@ const CHECKSUM_SIZE = 4;
 
 // Message Types
 const MESSAGE_TYPES = {
+    // RTCM fragment messages
+    RTCM_FRAGMENT_1: 51,
+    RTCM_FRAGMENT_2: 52,
+    RTCM_FRAGMENT_3: 53,
+    RTCM_FRAGMENT_4: 54,
+    RTCM_FINAL: 55,
+    
+    // Telemetry messages
     STATE_TELEMETRY: 155,
     SENSORS: 156,
     GPS: 157,
@@ -126,6 +134,11 @@ class LFSSerialComm {
         this.payloadBuffer = Buffer.alloc(255);
         this.packetBuffer = Buffer.alloc(255);
         this.payloadAndChecksumBuffer = Buffer.alloc(255);
+        
+        // RTCM functionality
+        this.rtcmIdCounter = 0;
+        this.rtcmEnabled = false;
+        this.rtcmBuffer = Buffer.alloc(255);
     }
 
     async listPorts() {
@@ -1008,7 +1021,7 @@ class LFSSerialComm {
 
     // Pack a complete LFS LINK-80 packet with COBS encoding and CRC
     packPacket(payload, payloadSize) {
-        if (payloadSize > 251) { // MAX_PACKET_SIZE - HEADER_SIZE - CHECKSUM_SIZE
+        if (payloadSize > 245) { // MAX_PACKET_SIZE - HEADER_SIZE - CHECKSUM_SIZE
             return 0;
         }
         
@@ -1096,6 +1109,166 @@ class LFSSerialComm {
             console.error('Failed to create command packet');
             return false;
         }
+    }
+
+    // RTCM Message Packing Functions
+    
+    // Pack and send RTCM data as LFS LINK-80 packets
+    async sendRTCMData(rtcmData) {
+        if (!this.rtcmEnabled || !rtcmData || rtcmData.length === 0) {
+            return false;
+        }
+
+        // Get unique RTCM ID (0-127)
+        const rtcmId = this.getNextRTCMId();
+        
+        // Maximum payload size per packet = 242 bytes (245 max payload - 3 byte header)
+        // Actual payload = RTCM ID (1 byte) + RTCM fragment data
+        const maxFragmentSize = 241; // 242 - 1 for RTCM ID
+        
+        if (rtcmData.length <= maxFragmentSize) {
+            // Single packet - use message type 55 (RTCM_FINAL)
+            return await this.sendRTCMFragment(rtcmId, rtcmData, MESSAGE_TYPES.RTCM_FINAL);
+        } else {
+            // Multiple packets needed
+            const fragments = this.splitRTCMData(rtcmData, maxFragmentSize);
+            const messageTypes = [
+                MESSAGE_TYPES.RTCM_FRAGMENT_1,
+                MESSAGE_TYPES.RTCM_FRAGMENT_2,
+                MESSAGE_TYPES.RTCM_FRAGMENT_3,
+                MESSAGE_TYPES.RTCM_FRAGMENT_4,
+                MESSAGE_TYPES.RTCM_FINAL
+            ];
+            
+            // Send all fragments
+            for (let i = 0; i < fragments.length; i++) {
+                const messageType = i < messageTypes.length - 1 ? messageTypes[i] : MESSAGE_TYPES.RTCM_FINAL;
+                const success = await this.sendRTCMFragment(rtcmId, fragments[i], messageType);
+                if (!success) {
+                    console.error(`Failed to send RTCM fragment ${i + 1}/${fragments.length}`);
+                    return false;
+                }
+            }
+            
+            console.log(`Successfully sent RTCM data in ${fragments.length} fragments (ID: ${rtcmId})`);
+            return true;
+        }
+    }
+    
+    // Split RTCM data into fragments
+    splitRTCMData(data, maxFragmentSize) {
+        const fragments = [];
+        let offset = 0;
+        
+        while (offset < data.length) {
+            const remainingBytes = data.length - offset;
+            const fragmentSize = Math.min(maxFragmentSize, remainingBytes);
+            const fragment = data.slice(offset, offset + fragmentSize);
+            fragments.push(fragment);
+            offset += fragmentSize;
+        }
+        
+        return fragments;
+    }
+    
+    // Send a single RTCM fragment
+    async sendRTCMFragment(rtcmId, fragmentData, messageType) {
+        // Create payload: [RTCM_ID][fragment_data]
+        let offset = 0;
+        this.rtcmBuffer[offset++] = rtcmId; // RTCM ID (0-127)
+        
+        // Copy fragment data
+        fragmentData.copy(this.rtcmBuffer, offset);
+        offset += fragmentData.length;
+        
+        // Pack into LFS LINK-80 packet
+        const packetSize = this.packRTCMPacket(this.rtcmBuffer, offset, messageType);
+        
+        if (packetSize > 0) {
+            const packet = this.packetBuffer.slice(0, packetSize);
+            const hexString = this.bufferToHex(packet);
+            console.log(`Sending RTCM fragment (ID: ${rtcmId}, type: ${messageType}, size: ${fragmentData.length})`);
+            console.log(`RTCM packet hex: ${hexString}`);
+            return await this.sendData(packet);
+        } else {
+            console.error('Failed to create RTCM packet');
+            return false;
+        }
+    }
+    
+    // Pack RTCM data into LFS LINK-80 packet format
+    packRTCMPacket(payload, payloadSize, messageType) {
+        if (payloadSize > 242) { // Max payload for RTCM fragments
+            console.error('RTCM payload too large:', payloadSize);
+            return 0;
+        }
+        
+        // Calculate CRC32 of original payload
+        const crc = this.calculateCRC32(payload.slice(0, payloadSize));
+        
+        // Create [payload + checksum] section
+        payload.copy(this.payloadAndChecksumBuffer, 0, 0, payloadSize);
+        
+        // Append checksum in little endian format
+        this.payloadAndChecksumBuffer.writeUInt32LE(crc, payloadSize);
+        
+        const totalDataSize = payloadSize + CHECKSUM_SIZE;
+        const requiredSize = HEADER_SIZE + totalDataSize;
+        
+        if (requiredSize > MAX_PACKET_SIZE) {
+            console.error('RTCM packet size exceeds maximum:', requiredSize);
+            return 0;
+        }
+        
+        // Find COBS offset (first occurrence of 0xAA in [payload + checksum])
+        let cobsOffset = 0;
+        for (let i = 0; i < totalDataSize; i++) {
+            if (this.payloadAndChecksumBuffer[i] === PACKET_HEADER) {
+                cobsOffset = i + 1;
+                break;
+            }
+        }
+        
+        // Apply COBS encoding if needed
+        if (cobsOffset > 0) {
+            this.applyCOBSEncoding(this.payloadAndChecksumBuffer, totalDataSize);
+        }
+        
+        // Build final packet
+        let packetPos = 0;
+        this.packetBuffer[packetPos++] = PACKET_HEADER;
+        this.packetBuffer[packetPos++] = totalDataSize;
+        this.packetBuffer[packetPos++] = cobsOffset;
+        
+        // Add COBS-encoded [payload + checksum]
+        this.payloadAndChecksumBuffer.copy(this.packetBuffer, packetPos, 0, totalDataSize);
+        packetPos += totalDataSize;
+        
+        return packetPos;
+    }
+    
+    // Get next RTCM ID (0-127, wrapping)
+    getNextRTCMId() {
+        this.rtcmIdCounter = (this.rtcmIdCounter + 1) % 128;
+        return this.rtcmIdCounter;
+    }
+    
+    // Enable/disable RTCM functionality
+    setRTCMEnabled(enabled) {
+        this.rtcmEnabled = enabled;
+        console.log('RTCM functionality', enabled ? 'enabled' : 'disabled');
+    }
+
+    // Test RTCM packet creation
+    testRTCMPacketCreation() {
+        // Create a test RTCM message
+        const testRTCM = Buffer.from([0xD3, 0x00, 0x13, 0x3E, 0xD0, 0x00, 0x03, 0x8A, 0x24, 0x61, 0x61, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1C, 0x9F]);
+        
+        console.log('Testing RTCM packet creation...');
+        console.log('Test RTCM data length:', testRTCM.length);
+        console.log('Test RTCM hex:', this.bufferToHex(testRTCM));
+        
+        this.sendRTCMData(testRTCM);
     }
 
     // Auto-connect to the first available port
@@ -1355,4 +1528,10 @@ async function sendCommand(command) {
     return false;
 }
 
-module.exports = { LFSSerialComm, serialComm, connectSerial, sendCommand };
+// Global test functions
+function testRTCMPackets() {
+    console.log('Testing RTCM packet creation...');
+    return serialComm.testRTCMPacketCreation();
+}
+
+module.exports = { LFSSerialComm, serialComm, connectSerial, sendCommand, testRTCMPackets };
