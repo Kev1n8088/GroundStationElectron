@@ -262,7 +262,7 @@ body {
 }
 
 .data-value {
-    font-family: 'Courier New', monospace;
+    font-family: 'Futura Md BT', monospace;
     color: #58a6ff;
     /* font-weight: bold; */
     font-size: 14px;
@@ -691,7 +691,7 @@ canvas {
 .gps-info-value {
     font-size: 14px;
     color: #ffffff;
-    font-family: 'Courier New', monospace;
+    font-family: 'Futura Md BT', monospace;
 }
 
 .kalman-std-section {
