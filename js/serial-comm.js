@@ -151,7 +151,7 @@ class LFSSerialComm {
         }
     }
 
-    async connect(portPath = null, baudRate = 57600) {
+    async connect(portPath = null, baudRate = 38400) {
         try {
             // If no port specified, try to find one automatically
             if (!portPath) {
