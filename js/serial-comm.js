@@ -477,7 +477,7 @@ class LFSSerialComm {
         this.lastTimeSinceLaunch = timeSinceLaunch;
         this.lastVehicleStateValue = vehicleState;
 
-        console.log('State Telemetry:', telemetryData);
+        //console.log('State Telemetry:', telemetryData);
         this.updateDisplaysWithTelemetry(telemetryData);
         this.updateVehicleState(vehicleState);
         this.updateLaunchTime(timeSinceLaunch);
@@ -529,7 +529,7 @@ class LFSSerialComm {
             downCount
         };
 
-        console.log('Sensor Data:', sensorData);
+        //console.log('Sensor Data:', sensorData);
         this.updateSensorStatus(failmask);
         this.updateSensorPanelData(sensorData);
         
@@ -581,7 +581,7 @@ class LFSSerialComm {
             downCount
         };
 
-        console.log('GPS Data:', gpsData);
+        //console.log('GPS Data:', gpsData);
         this.updateGPSFixType(gpsQuality);
         this.updateRTCMAge(lastRTCM);
         this.updateGPSPanelData(gpsData);
@@ -647,7 +647,7 @@ class LFSSerialComm {
         // Store latest thrust value
         this.lastThrust = thrust;
 
-        console.log('Lander Data:', landerData);
+        //console.log('Lander Data:', landerData);
         this.updateBatteryVoltage(VBAT);
         this.updatePyroStatus(pyroStatus);
         getControlPlots().updateAttitudeSetpoints(yawSetpoint, pitchSetpoint);
@@ -709,7 +709,7 @@ class LFSSerialComm {
             downCount
         };
 
-        console.log('Kalman Data:', kalmanData);
+        //console.log('Kalman Data:', kalmanData);
         
         // Update Kalman standard deviation indicator with uncertainty data
         if (typeof kalmanStdIndicator !== 'undefined') {
@@ -726,7 +726,7 @@ class LFSSerialComm {
         
         if (typeof vehicleState !== 'undefined') {
             vehicleState.quaternion = telemetry.quaternion;
-            console.log("Vehicle state updated with telemetry:", telemetry.quaternion);
+            //console.log("Vehicle state updated with telemetry:", telemetry.quaternion);
             // vehicleState.position = telemetry.position;
             // vehicleState.velocity = telemetry.velocity;
             // vehicleState.acceleration = telemetry.acceleration;
