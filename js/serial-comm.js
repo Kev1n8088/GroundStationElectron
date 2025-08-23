@@ -138,7 +138,6 @@ class LFSSerialComm {
         // RTCM functionality
         this.rtcmIdCounter = 0;
         this.rtcmEnabled = false;
-        this.rtcmBuffer = Buffer.alloc(255);
     }
 
     async listPorts() {
@@ -1122,9 +1121,9 @@ class LFSSerialComm {
         // Get unique RTCM ID (0-127)
         const rtcmId = this.getNextRTCMId();
         
-        // Maximum payload size per packet = 242 bytes (245 max payload - 3 byte header)
-        // Actual payload = RTCM ID (1 byte) + RTCM fragment data
-        const maxFragmentSize = 241; // 242 - 1 for RTCM ID
+        // Maximum payload size per packet = 245 bytes (MAX_PACKET_SIZE - HEADER_SIZE - CHECKSUM_SIZE)
+        // Actual payload = reserved (1) + message_type (1) + rtcm_id (1) + rtcm_fragment_data
+        const maxFragmentSize = 242; // 245 - 3 for reserved/message_type/rtcm_id
         
         if (rtcmData.length <= maxFragmentSize) {
             // Single packet - use message type 55 (RTCM_FINAL)
@@ -1173,16 +1172,20 @@ class LFSSerialComm {
     
     // Send a single RTCM fragment
     async sendRTCMFragment(rtcmId, fragmentData, messageType) {
-        // Create payload: [RTCM_ID][fragment_data]
+        // Create payload: [reserved_byte][message_type][rtcm_id][rtcm_fragment_data]
         let offset = 0;
-        this.rtcmBuffer[offset++] = rtcmId; // RTCM ID (0-127)
+        this.payloadBuffer[offset++] = 0; // Reserved addressing byte
+        this.payloadBuffer[offset++] = messageType; // Message type (51-55)
+        this.payloadBuffer[offset++] = rtcmId; // RTCM ID (0-127)
         
         // Copy fragment data
-        fragmentData.copy(this.rtcmBuffer, offset);
+        fragmentData.copy(this.payloadBuffer, offset);
         offset += fragmentData.length;
         
-        // Pack into LFS LINK-80 packet
-        const packetSize = this.packRTCMPacket(this.rtcmBuffer, offset, messageType);
+        const payloadSize = offset;
+        
+        // Use existing packPacket method (same as commands)
+        const packetSize = this.packPacket(this.payloadBuffer, payloadSize);
         
         if (packetSize > 0) {
             const packet = this.packetBuffer.slice(0, packetSize);
@@ -1194,57 +1197,6 @@ class LFSSerialComm {
             console.error('Failed to create RTCM packet');
             return false;
         }
-    }
-    
-    // Pack RTCM data into LFS LINK-80 packet format
-    packRTCMPacket(payload, payloadSize, messageType) {
-        if (payloadSize > 242) { // Max payload for RTCM fragments
-            console.error('RTCM payload too large:', payloadSize);
-            return 0;
-        }
-        
-        // Calculate CRC32 of original payload
-        const crc = this.calculateCRC32(payload.slice(0, payloadSize));
-        
-        // Create [payload + checksum] section
-        payload.copy(this.payloadAndChecksumBuffer, 0, 0, payloadSize);
-        
-        // Append checksum in little endian format
-        this.payloadAndChecksumBuffer.writeUInt32LE(crc, payloadSize);
-        
-        const totalDataSize = payloadSize + CHECKSUM_SIZE;
-        const requiredSize = HEADER_SIZE + totalDataSize;
-        
-        if (requiredSize > MAX_PACKET_SIZE) {
-            console.error('RTCM packet size exceeds maximum:', requiredSize);
-            return 0;
-        }
-        
-        // Find COBS offset (first occurrence of 0xAA in [payload + checksum])
-        let cobsOffset = 0;
-        for (let i = 0; i < totalDataSize; i++) {
-            if (this.payloadAndChecksumBuffer[i] === PACKET_HEADER) {
-                cobsOffset = i + 1;
-                break;
-            }
-        }
-        
-        // Apply COBS encoding if needed
-        if (cobsOffset > 0) {
-            this.applyCOBSEncoding(this.payloadAndChecksumBuffer, totalDataSize);
-        }
-        
-        // Build final packet
-        let packetPos = 0;
-        this.packetBuffer[packetPos++] = PACKET_HEADER;
-        this.packetBuffer[packetPos++] = totalDataSize;
-        this.packetBuffer[packetPos++] = cobsOffset;
-        
-        // Add COBS-encoded [payload + checksum]
-        this.payloadAndChecksumBuffer.copy(this.packetBuffer, packetPos, 0, totalDataSize);
-        packetPos += totalDataSize;
-        
-        return packetPos;
     }
     
     // Get next RTCM ID (0-127, wrapping)
