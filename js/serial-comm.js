@@ -500,7 +500,7 @@ class LFSSerialComm {
         
         // Update velocity indicator with vertical velocity (Z component)
         if (typeof velocityIndicator !== 'undefined') {
-            velocityIndicator.updateVelocity(telemetryData.velocity.z);
+            velocityIndicator.updateVelocity(telemetryData.velocity.x);
         }
     }
 
@@ -768,7 +768,7 @@ class LFSSerialComm {
         
         if (typeof vehicleState !== 'undefined') {
             vehicleState.quaternion = telemetry.quaternion;
-            //console.log("Vehicle state updated with telemetry:", telemetry.quaternion);
+            console.log("Vehicle state updated with telemetry:", telemetry.position);
             vehicleState.position = telemetry.position;
             // vehicleState.velocity = telemetry.velocity;
             // vehicleState.acceleration = telemetry.acceleration;
@@ -1287,7 +1287,7 @@ class LFSSerialComm {
             const result = await this.sendData(packet);
             
             // Add small delay after sending packet to ensure transmission completes
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await new Promise(resolve => setTimeout(resolve, 50));
             
             return result;
         } else {

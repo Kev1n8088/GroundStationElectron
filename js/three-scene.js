@@ -246,7 +246,7 @@ class ThreeScene {
         if (!this.vehicle) return;
 
         // Update position
-        this.vehicle.position.set(vehicleState.position.y, vehicleState.position.x, vehicleState.position.z);
+        this.vehicle.position.set(-vehicleState.position.y, vehicleState.position.x, vehicleState.position.z);
 
         const upOffset = new THREE.Quaternion();
         upOffset.setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI / 2); // rotate -90° about X to map +Z to +Y
