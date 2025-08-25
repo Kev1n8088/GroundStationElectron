@@ -502,6 +502,9 @@ class LFSSerialComm {
         if (typeof velocityIndicator !== 'undefined') {
             velocityIndicator.updateVelocity(telemetryData.velocity.x);
         }
+
+
+        this.updateKalmanMeasurements({position: telemetryData.position, velocity: telemetryData.velocity, acceleration: telemetryData.acceleration});
     }
 
     handleSensorData(data) {
@@ -732,7 +735,6 @@ class LFSSerialComm {
         }
         
         // Update Kalman measurements display
-        this.updateKalmanMeasurements(kalmanData.measurements);
     }
 
     updateKalmanMeasurements(measurements) {
