@@ -584,6 +584,7 @@ class LFSSerialComm {
             dilutionOfPrecision: { position: pdop},
             position: { latitude: currentLat, longitude: currentLon, altitude: currentAlt },
             homePosition: { latitude: homeLat, longitude: homeLon, altitude: homeAlt },
+            velocity: { down: downVel, east: eastVel, north: northVel },
             lastRTCM,
             accuracy: { threeD: accuracy3D, twoD: accuracy2D },
             relPos: { x: relX, y: relY, z: relZ },
@@ -1220,7 +1221,7 @@ class LFSSerialComm {
                         
                         // Add spacing between fragments (except for the last one)
                         if (i < fragments.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 50));
+                            await new Promise(resolve => setTimeout(resolve, 40));
                         }
                     }
                     
@@ -1233,7 +1234,7 @@ class LFSSerialComm {
                 
                 // Add spacing between different RTCM messages
                 if (this.rtcmQueue.length > 0) {
-                    await new Promise(resolve => setTimeout(resolve, 100));
+                    await new Promise(resolve => setTimeout(resolve, 50));
                 }
                 
             } catch (error) {
@@ -1287,7 +1288,7 @@ class LFSSerialComm {
             const result = await this.sendData(packet);
             
             // Add small delay after sending packet to ensure transmission completes
-            await new Promise(resolve => setTimeout(resolve, 50));
+            await new Promise(resolve => setTimeout(resolve, 40));
             
             return result;
         } else {
