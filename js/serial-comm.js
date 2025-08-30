@@ -645,7 +645,7 @@ class LFSSerialComm {
             setpoints: { yaw: yawSetpoint, pitch: pitchSetpoint },
             commands: { yaw: yawCommand, pitch: pitchCommand},
             rollMixed: { yaw: rollMixedYaw, pitch: rollMixedPitch },
-            misaligns: { yaw: yawMisalign, roll: pitchMisalign },
+            misaligns: { yaw: yawMisalign, pitch: pitchMisalign },
             rollCommand,
             projected: { Y: YProjected, Z: ZProjected },
             batteryVoltage: VBAT,
@@ -661,7 +661,7 @@ class LFSSerialComm {
         // Store latest thrust value
         this.lastThrust = thrust;
 
-        //console.log('Lander Data:', landerData);
+        console.log('Lander Data:', landerData.misaligns);
         this.updateBatteryVoltage(VBAT);
         this.updatePyroStatus(pyroStatus);
         getControlPlots().updateAttitudeSetpoints(yawSetpoint, pitchSetpoint);
@@ -1368,7 +1368,7 @@ class LFSSerialComm {
 
         // Update barometer data
         const baroAltEl = document.getElementById('baro-altitude');
-        if (baroAltEl) baroAltEl.textContent = sensorData.baroAltitude.toFixed(2);
+        if (baroAltEl) baroAltEl.textContent = sensorData.baroAltitude.toFixed(4);
 
         // Update SD card status
         const sdStatusEl = document.getElementById('sd-status');
@@ -1541,7 +1541,7 @@ async function connectSerial() {
     }
 }
 
-async function sendCommand(command) {
+async function sendACommand(command) {
     console.log('Command requested:', command);
     
     // Map command strings to command types
@@ -1609,4 +1609,4 @@ function testRTCMPackets() {
     return serialComm.testRTCMPacketCreation();
 }
 
-module.exports = { LFSSerialComm, serialComm, connectSerial, sendCommand, testRTCMPackets };
+module.exports = { LFSSerialComm, serialComm, connectSerial, sendACommand, testRTCMPackets };

@@ -51,42 +51,6 @@ class GroundStationApp {
     }
 
     setupKeyboardShortcuts() {
-        document.addEventListener('keydown', (event) => {
-            // Don't process shortcuts if typing in input fields
-            if (event.target.tagName === 'INPUT') return;
-            
-            switch (event.code) {
-                
-                case 'KeyC':
-                    if (event.ctrlKey) {
-                        event.preventDefault();
-                        connectSerial();
-                    }
-                    break;
-                    
-                case 'KeyR':
-                    if (event.ctrlKey) {
-                        event.preventDefault();
-                        this.resetView();
-                    }
-                    break;
-                    
-                case 'KeyA':
-                    if (event.ctrlKey) {
-                        event.preventDefault();
-                        sendCommand('ARM');
-                    }
-                    break;
-                    
-                case 'KeyD':
-                    if (event.ctrlKey) {
-                        event.preventDefault();
-                        sendCommand('DISARM');
-                    }
-                    break;
-                    
-            }
-        });
     }
 
     setupUIHandlers() {

@@ -23,9 +23,9 @@
                 <div class="info-left">
                     <div class="button-group">
                         <button onclick="connectSerial()">Connect</button>
-                        <button onclick="sendCommand('ARM')">ARM</button>
-                        <button onclick="sendCommand('DISARM')">DISARM</button>
-                        <button onclick="sendCommand('PING')">Ping</button>
+                        <button onclick="sendACommand('ARM')">ARM</button>
+                        <button onclick="sendACommand('DISARM')">DISARM</button>
+                        <button onclick="sendACommand('PING')">Ping</button>
                         <div class="test-state-group">
                             <button onclick="enterTestState()">Enter Test</button>
                             <select id="test-state-select">
@@ -426,7 +426,7 @@
             const select = document.getElementById('test-state-select');
             const state = select.value;
             console.log('Entering test state:', state);
-            sendCommand(state);
+            sendACommand(state);
         }
 
         // RTCM/NTRIP functionality
