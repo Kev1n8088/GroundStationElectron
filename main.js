@@ -86,6 +86,7 @@ app.on("ready", () => {
   });
 
 let mainWindow;
+let positionPlotsWindow = null;
 
 //app.disableHardwareAcceleration(false);
 
@@ -115,6 +116,10 @@ function createWindow() {
     // Handle window closed
     mainWindow.on('closed', () => {
         mainWindow = null;
+        // Close position plots window if open
+        if (positionPlotsWindow) {
+            positionPlotsWindow.close();
+        }
     });
 
     // Open DevTools in development
@@ -132,6 +137,43 @@ function createWindow() {
             mainWindow.setSize(width, newHeight);
         }
     });
+}
+
+// Create position plots window
+function createPositionPlotsWindow() {
+    if (positionPlotsWindow) {
+        positionPlotsWindow.focus();
+        return;
+    }
+
+    positionPlotsWindow = new BrowserWindow({
+        width: 1200,
+        height: 900,
+        minWidth: 800,
+        minHeight: 600,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            enableRemoteModule: true
+        },
+        title: 'Position Plots',
+        show: false
+    });
+
+    positionPlotsWindow.loadFile('position-plots.html');
+
+    positionPlotsWindow.once('ready-to-show', () => {
+        positionPlotsWindow.show();
+    });
+
+    positionPlotsWindow.on('closed', () => {
+        positionPlotsWindow = null;
+    });
+
+    // Open DevTools in development
+    if (process.argv.includes('--dev')) {
+        positionPlotsWindow.webContents.openDevTools();
+    }
 }
 
 
@@ -242,6 +284,31 @@ ipcMain.handle('read-obj-file', async () => {
     } catch (error) {
         return { success: false, error: error.message };
     }
+});
+
+// Handle opening position plots window
+ipcMain.handle('open-position-plots', async () => {
+    createPositionPlotsWindow();
+    return true;
+});
+
+// Send position data to plots window
+function sendPositionDataToPlots(type, data) {
+    if (positionPlotsWindow && positionPlotsWindow.webContents) {
+        positionPlotsWindow.webContents.send(type, {
+            ...data,
+            timestamp: Date.now()
+        });
+    }
+}
+
+// Handle position data from main window
+ipcMain.on('position-data-state', (event, data) => {
+    sendPositionDataToPlots('state-telemetry-data', data);
+});
+
+ipcMain.on('position-data-kalman', (event, data) => {
+    sendPositionDataToPlots('kalman-data', data);
 });
 
 // App event handlers

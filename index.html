@@ -26,6 +26,7 @@
                         <button onclick="sendACommand('ARM')">ARM</button>
                         <button onclick="sendACommand('DISARM')">DISARM</button>
                         <button onclick="sendACommand('PING')">Ping</button>
+                        <button onclick="openPositionPlots()">Position Plots</button>
                         <div class="test-state-group">
                             <button onclick="enterTestState()">Enter Test</button>
                             <select id="test-state-select">
@@ -428,6 +429,17 @@
             const state = select.value;
             console.log('Entering test state:', state);
             sendACommand(state);
+        }
+
+        // Open position plots window
+        async function openPositionPlots() {
+            try {
+                const { ipcRenderer } = window.require('electron');
+                await ipcRenderer.invoke('open-position-plots');
+                console.log('Position plots window opened');
+            } catch (error) {
+                console.error('Failed to open position plots window:', error);
+            }
         }
 
         // RTCM/NTRIP functionality

@@ -493,6 +493,12 @@ class LFSSerialComm {
         getControlPlots().updateCurrentPosition(telemetryData.position);
         getControlPlots().updateCurrentQuaternion(telemetryData.quaternion);
         
+        // Send position data to plots window via IPC
+        if (typeof window !== 'undefined' && window.require) {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.send('position-data-state', { position: telemetryData.position });
+        }
+        
         // Update flight data chart with altitude and time since launch
         if (typeof updateFlightChart !== 'undefined') {
             updateFlightChart(this.lastThrust, this.lastAltitude, this.lastTimeSinceLaunch, this.lastVehicleStateValue);
@@ -725,6 +731,12 @@ class LFSSerialComm {
 
         //console.log('Kalman Data:', kalmanData);
         
+        // Send Kalman position data to plots window via IPC
+        if (typeof window !== 'undefined' && window.require) {
+            const { ipcRenderer } = window.require('electron');
+            ipcRenderer.send('position-data-kalman', { measurements: kalmanData.measurements });
+        }
+        
         // Update Kalman standard deviation indicator with uncertainty data
         if (typeof kalmanStdIndicator !== 'undefined') {
             kalmanStdIndicator.updateAllStdDevs(
@@ -848,9 +860,10 @@ class LFSSerialComm {
     }
 
     updatePyroStatus(pyroStatus) {
-        
+        // Unmask the individual bits
         const chuteGood = (pyroStatus & (1 << 0)) !== 0;  // Bit 0: chute continuity
         const pyroGood = (pyroStatus & (1 << 1)) !== 0;   // Bit 1: pyro continuity
+        
         const pyroElement = document.getElementById('pyro-status');
         if (pyroElement) {
             pyroElement.className = pyroGood ? 'pyro-indicator good' : 'pyro-indicator';
