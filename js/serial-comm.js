@@ -848,11 +848,16 @@ class LFSSerialComm {
     }
 
     updatePyroStatus(pyroStatus) {
+        
+        const chuteGood = (pyroStatus & (1 << 0)) !== 0;  // Bit 0: chute continuity
+        const pyroGood = (pyroStatus & (1 << 1)) !== 0;   // Bit 1: pyro continuity
         const pyroElement = document.getElementById('pyro-status');
         if (pyroElement) {
-            const isGood = pyroStatus === 127;
-            pyroElement.className = isGood ? 'pyro-indicator good' : 'pyro-indicator';
-            pyroElement.title = isGood ? 'Good' : 'No Good';
+            pyroElement.className = pyroGood ? 'pyro-indicator good' : 'pyro-indicator';
+        }
+        const chuteElement = document.getElementById('abort-status');
+        if (chuteElement) {
+            chuteElement.className = chuteGood ? 'pyro-indicator good' : 'pyro-indicator';
         }
     }
 
@@ -975,7 +980,12 @@ class LFSSerialComm {
         const pyroElement = document.getElementById('pyro-status');
         if (pyroElement) {
             pyroElement.className = 'pyro-indicator';
-            pyroElement.title = 'No Good';
+        }
+
+
+        const chuteElement = document.getElementById('abort-status');
+        if (chuteElement) {
+            chuteElement.className = 'pyro-indicator';
         }
         
         // Reset launch time
