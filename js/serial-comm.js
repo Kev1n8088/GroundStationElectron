@@ -496,7 +496,10 @@ class LFSSerialComm {
         // Send position data to plots window via IPC
         if (typeof window !== 'undefined' && window.require) {
             const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('position-data-state', { position: telemetryData.position });
+            ipcRenderer.send('position-data-state', { position: telemetryData.position,
+                velocity: telemetryData.velocity,
+                acceleration: telemetryData.acceleration,
+             });
         }
         
         // Update flight data chart with altitude and time since launch

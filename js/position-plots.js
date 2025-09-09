@@ -172,13 +172,13 @@ class PositionPlots {
             
             ipcRenderer.on('state-telemetry-data', (event, data) => {
                 if (!this.isPaused) {
-                    this.updateStatePosition(data.position, data.timestamp);
+                    this.updateStatePosition(data.velocity, data.timestamp);
                 }
             });
             
             ipcRenderer.on('kalman-data', (event, data) => {
                 if (!this.isPaused) {
-                    this.updateKalmanPosition(data.measurements.position, data.timestamp);
+                    this.updateKalmanPosition(data.measurements.velocity    , data.timestamp);
                 }
             });
         }
