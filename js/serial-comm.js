@@ -50,7 +50,8 @@ const COMMAND_TYPES = {
     TRAJ_TEST: 23,
     MISALIGN_TEST: 24,
     TEST_PREP: 25,
-    PYRO_TEST: 26  // Added pyro test command
+    PYRO_TEST: 26,  // Added pyro test command
+    ABORT_TEST: 27
 };
 
 // Vehicle state enum mapping
@@ -666,6 +667,8 @@ class LFSSerialComm {
             vehicleMs,
             downCount
         };
+
+        console.log(apogeeAlt);
 
         // Store latest thrust value
         this.lastThrust = thrust;
@@ -1602,6 +1605,9 @@ async function sendACommand(command) {
             break;
         case 'pyroTest':
             commandType = COMMAND_TYPES.PYRO_TEST;
+            break;
+        case 'abortTest':
+            commandType = COMMAND_TYPES.ABORT_TEST;
             break;
         default:
             console.error('Unknown command:', command);
