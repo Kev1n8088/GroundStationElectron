@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import mplcursors
 import numpy as np
 
 # Protocol Constants (from JavaScript)
@@ -83,6 +84,7 @@ class EulerAngles:
 class LFSTelemetryParser:
     def __init__(self):
         self.packets: List[ParsedPacket] = []
+        self.data_version = None  # Will be set to "1.0" or "1.1"
         
     @staticmethod
     def quaternion_to_euler(q_w: float, q_x: float, q_y: float, q_z: float) -> EulerAngles:
@@ -105,6 +107,265 @@ class LFSTelemetryParser:
         yaw = math.atan2(siny_cosp, cosy_cosp)
         
         return EulerAngles(roll=roll, pitch=pitch, yaw=yaw)
+        
+    def detect_data_version(self, data: bytes) -> str:
+        """Detect data version based on packet sizes and types"""
+        # Find first few valid packets and analyze their sizes
+        offset = 0
+        packet_sizes = []
+        message_types = []
+        
+        # Check first 10 packets or so
+        for _ in range(min(10, len(data) // 50)):  # Rough estimate
+            header_pos = data.find(PACKET_HEADER, offset)
+            if header_pos == -1:
+                break
+                
+            if header_pos + HEADER_SIZE > len(data):
+                break
+                
+            payload_length = data[header_pos + 1]
+            packet_length = HEADER_SIZE + payload_length
+            
+            if header_pos + packet_length > len(data):
+                break
+                
+            # Try to parse this packet to get message type
+            packet_data = data[header_pos:header_pos + packet_length]
+            parsed = self.unpack_lfs_packet(packet_data)
+            
+            if parsed.valid and len(parsed.data) >= 1:
+                packet_sizes.append(payload_length)
+                message_types.append(parsed.message_type)
+            
+            offset = header_pos + packet_length
+        
+        if not packet_sizes:
+            return "1.0"  # Default to old version
+        
+        # v1.1 characteristics:
+        # - STATE_TELEMETRY (155) has payload ~181 bytes
+        # - GPS (157) has payload ~162 bytes 
+        # - No SENSORS (156), LANDER (158), KALMAN (159) packets
+        
+        # v1.0 characteristics:
+        # - STATE_TELEMETRY (155) has payload ~65 bytes
+        # - Multiple packet types including 156, 158, 159
+        
+        has_large_state_packets = any(
+            msg == 155 and size > 150 
+            for msg, size in zip(message_types, packet_sizes)
+        )
+        
+        has_old_packet_types = any(
+            msg in [156, 158, 159] 
+            for msg in message_types
+        )
+        
+        if has_large_state_packets and not has_old_packet_types:
+            return "1.1"
+        else:
+            return "1.0"
+    
+    def parse_state_telemetry_v11(self, data: bytes) -> Dict[str, Any]:
+        """Parse state telemetry data for v1.1 (combined packet)"""
+        if len(data) < 181:
+            raise ValueError(f'State telemetry v1.1 data too short: {len(data)} bytes, expected 181')
+        
+        offset = 0
+        
+        # State telemetry portion (matches old format)
+        vehicle_state = struct.unpack_from('<b', data, offset)[0]; offset += 1
+        quat_w = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        quat_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        quat_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        quat_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accel_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accel_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accel_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vel_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vel_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vel_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pos_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pos_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pos_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        time_since_launch = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        
+        # Sensor data portion (previously separate SENSORS packet)
+        failmask = struct.unpack_from('<b', data, offset)[0]; offset += 1
+        sd_good = struct.unpack_from('<B', data, offset)[0] != 0; offset += 1
+        gyro_yaw = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        gyro_pitch = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        gyro_roll = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accelerometer_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accelerometer_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accelerometer_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        baro_altitude = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        gyro_bias_yaw = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        gyro_bias_pitch = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        gyro_bias_roll = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        
+        # Kalman uncertainty data (previously separate KALMAN packet)
+        acc_unc_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        acc_unc_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        acc_unc_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vel_unc_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vel_unc_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vel_unc_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pos_unc_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pos_unc_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pos_unc_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        
+        # Kalman measurement data
+        accel_meas_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accel_meas_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accel_meas_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vel_meas_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vel_meas_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vel_meas_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pos_meas_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pos_meas_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pos_meas_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        
+        vehicle_ms = struct.unpack_from('<I', data, offset)[0]; offset += 4
+        down_count = struct.unpack_from('<I', data, offset)[0]
+        
+        # Parse sensor failures
+        sensor_status = {}
+        for name, bit in SENSOR_FAIL_BITS.items():
+            sensor_status[name] = not bool(failmask & bit)
+        
+        return {
+            'type': 'STATE_TELEMETRY_V11',
+            'vehicleState': vehicle_state,
+            'vehicleStateName': VEHICLE_STATES.get(vehicle_state, f'UNKNOWN({vehicle_state})'),
+            'quaternion': {'w': quat_w, 'x': quat_x, 'y': quat_y, 'z': quat_z},
+            'eulerAngles': self.quaternion_to_euler(quat_w, quat_x, quat_y, quat_z),
+            'acceleration': {'x': accel_x, 'y': accel_y, 'z': accel_z},
+            'velocity': {'x': vel_x, 'y': vel_y, 'z': vel_z},
+            'position': {'x': pos_x, 'y': pos_y, 'z': pos_z},
+            'timeSinceLaunch': time_since_launch,
+            
+            # Sensor data
+            'failmask': failmask,
+            'sensorStatus': sensor_status,
+            'sdGood': sd_good,
+            'gyro': {'yaw': gyro_yaw, 'pitch': gyro_pitch, 'roll': gyro_roll},
+            'accelerometer': {'x': accelerometer_x, 'y': accelerometer_y, 'z': accelerometer_z},
+            'baroAltitude': baro_altitude,
+            'gyroBias': {'yaw': gyro_bias_yaw, 'pitch': gyro_bias_pitch, 'roll': gyro_bias_roll},
+            
+            # Kalman data
+            'uncertainty': {
+                'acceleration': {'x': acc_unc_x, 'y': acc_unc_y, 'z': acc_unc_z},
+                'velocity': {'x': vel_unc_x, 'y': vel_unc_y, 'z': vel_unc_z},
+                'position': {'x': pos_unc_x, 'y': pos_unc_y, 'z': pos_unc_z}
+            },
+            'measurements': {
+                'acceleration': {'x': accel_meas_x, 'y': accel_meas_y, 'z': accel_meas_z},
+                'velocity': {'x': vel_meas_x, 'y': vel_meas_y, 'z': vel_meas_z},
+                'position': {'x': pos_meas_x, 'y': pos_meas_y, 'z': pos_meas_z}
+            },
+            
+            'vehicleMs': vehicle_ms,
+            'downCount': down_count
+        }
+    
+    def parse_gps_data_v11(self, data: bytes) -> Dict[str, Any]:
+        """Parse GPS data for v1.1 (combined packet with lander data)"""
+        if len(data) < 162:
+            raise ValueError(f'GPS v1.1 data too short: {len(data)} bytes, expected 162')
+        
+        offset = 0
+        
+        # GPS data portion
+        sats_in_view = struct.unpack_from('<B', data, offset)[0]; offset += 1
+        sats_used = struct.unpack_from('<B', data, offset)[0]; offset += 1
+        gps_quality = struct.unpack_from('<B', data, offset)[0]; offset += 1
+        current_lat = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        current_lon = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        current_alt = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accuracy_2d = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        accuracy_3d = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pdop = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        gps_ms = struct.unpack_from('<I', data, offset)[0]; offset += 4
+        last_rtcm = struct.unpack_from('<I', data, offset)[0]; offset += 4
+        home_lat = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        home_lon = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        home_alt = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        down_vel = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        east_vel = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        north_vel = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        rel_x = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        rel_y = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        rel_z = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        
+        # Lander data portion (previously separate LANDER packet)
+        y_target = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        z_target = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        ignition_alt = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        apogee_alt = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        yaw_setpoint = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pitch_setpoint = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        yaw_command = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pitch_command = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        roll_mixed_yaw = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        roll_mixed_pitch = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        yaw_misalign = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pitch_misalign = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        roll_command = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        y_projected = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        z_projected = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        vbat = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        thrust = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        mass = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        mmoi = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        moment_arm = struct.unpack_from('<f', data, offset)[0]; offset += 4
+        pyro_status = struct.unpack_from('<B', data, offset)[0]; offset += 1
+        vehicle_ms = struct.unpack_from('<I', data, offset)[0]; offset += 4
+        down_count = struct.unpack_from('<I', data, offset)[0]
+        
+        # Parse pyro status bits
+        chute_good = bool(pyro_status & (1 << 0))
+        pyro_good = bool(pyro_status & (1 << 1))
+        
+        return {
+            'type': 'GPS_V11',
+            
+            # GPS data
+            'satellites': {'inView': sats_in_view, 'used': sats_used},
+            'quality': gps_quality,
+            'position': {'latitude': current_lat, 'longitude': current_lon, 'altitude': current_alt},
+            'homePosition': {'latitude': home_lat, 'longitude': home_lon, 'altitude': home_alt},
+            'velocity': {'down': down_vel, 'east': east_vel, 'north': north_vel},
+            'accuracy': {'2D': accuracy_2d, '3D': accuracy_3d},
+            'pdop': pdop,
+            'lastRTCM': last_rtcm,
+            'relativePosition': {'x': rel_x, 'y': rel_y, 'z': rel_z},
+            
+            # Lander data  
+            'target': {'Y': y_target, 'Z': z_target},
+            'ignitionAltitude': ignition_alt,
+            'apogeeAltitude': apogee_alt,
+            'setpoints': {'yaw': yaw_setpoint, 'pitch': pitch_setpoint},
+            'commands': {'yaw': yaw_command, 'pitch': pitch_command, 'roll': roll_command},
+            'rollMixed': {'yaw': roll_mixed_yaw, 'pitch': roll_mixed_pitch},
+            'misaligns': {'yaw': yaw_misalign, 'pitch': pitch_misalign},
+            'projected': {'Y': y_projected, 'Z': z_projected},
+            'batteryVoltage': vbat,
+            'thrust': thrust,
+            'mass': mass,
+            'momentOfInertia': mmoi,
+            'momentArm': moment_arm,
+            'pyroStatus': {
+                'raw': pyro_status,
+                'chute': chute_good,
+                'pyro': pyro_good
+            },
+            
+            'vehicleMs': vehicle_ms,
+            'downCount': down_count
+        }
         
     def calculate_crc32(self, data: bytes) -> int:
         """Calculate CRC32 checksum (matches JavaScript implementation)"""
@@ -406,23 +667,36 @@ class LFSTelemetryParser:
         }
     
     def parse_packet_data(self, packet: ParsedPacket) -> Optional[Dict[str, Any]]:
-        """Parse packet data based on message type"""
+        """Parse packet data based on message type and version"""
         try:
-            if packet.message_type == 155:  # STATE_TELEMETRY
-                return self.parse_state_telemetry(packet.data)
-            elif packet.message_type == 156:  # SENSORS
-                return self.parse_sensor_data(packet.data)
-            elif packet.message_type == 157:  # GPS
-                return self.parse_gps_data(packet.data)
-            elif packet.message_type == 158:  # LANDER
-                return self.parse_lander_data(packet.data)
-            elif packet.message_type == 159:  # KALMAN
-                return self.parse_kalman_data(packet.data)
+            if self.data_version == "1.1":
+                # v1.1 parsing (consolidated packets)
+                if packet.message_type == 155:  # STATE_TELEMETRY
+                    return self.parse_state_telemetry_v11(packet.data)
+                elif packet.message_type == 157:  # GPS (includes lander data)
+                    return self.parse_gps_data_v11(packet.data)
+                else:
+                    return {
+                        'type': MESSAGE_TYPES.get(packet.message_type, f'UNKNOWN({packet.message_type})'),
+                        'raw_data': packet.data.hex()
+                    }
             else:
-                return {
-                    'type': MESSAGE_TYPES.get(packet.message_type, f'UNKNOWN({packet.message_type})'),
-                    'raw_data': packet.data.hex()
-                }
+                # v1.0 parsing (original separate packets)
+                if packet.message_type == 155:  # STATE_TELEMETRY
+                    return self.parse_state_telemetry(packet.data)
+                elif packet.message_type == 156:  # SENSORS
+                    return self.parse_sensor_data(packet.data)
+                elif packet.message_type == 157:  # GPS
+                    return self.parse_gps_data(packet.data)
+                elif packet.message_type == 158:  # LANDER
+                    return self.parse_lander_data(packet.data)
+                elif packet.message_type == 159:  # KALMAN
+                    return self.parse_kalman_data(packet.data)
+                else:
+                    return {
+                        'type': MESSAGE_TYPES.get(packet.message_type, f'UNKNOWN({packet.message_type})'),
+                        'raw_data': packet.data.hex()
+                    }
         except Exception as e:
             return {
                 'type': 'PARSE_ERROR',
@@ -431,12 +705,64 @@ class LFSTelemetryParser:
             }
     
     def parse_file(self, filename: str) -> List[Dict[str, Any]]:
-        """Parse binary telemetry file"""
+        """Parse binary telemetry file with version detection"""
         self.packets.clear()
         parsed_data = []
         
         with open(filename, 'rb') as f:
             data = f.read()
+        
+        # Detect version automatically
+        detected_version = self.detect_data_version(data)
+        
+        # Ask user to confirm or override version
+        version_dialog = tk.Toplevel()
+        version_dialog.title("Data Version Selection")
+        version_dialog.geometry("400x200")
+        version_dialog.transient()
+        version_dialog.grab_set()
+        
+        selected_version = tk.StringVar(value=detected_version)
+        result = {'version': None}
+        
+        def on_confirm():
+            result['version'] = selected_version.get()
+            version_dialog.destroy()
+        
+        def on_cancel():
+            version_dialog.destroy()
+        
+        # Create dialog content
+        ttk.Label(version_dialog, text=f"Auto-detected version: {detected_version}").pack(pady=10)
+        ttk.Label(version_dialog, text="Select telemetry data version:").pack(pady=5)
+        
+        radio_frame = ttk.Frame(version_dialog)
+        radio_frame.pack(pady=10)
+        
+        ttk.Radiobutton(radio_frame, text="v1.0 (5 separate packet types)", 
+                       variable=selected_version, value="1.0").pack(anchor='w')
+        ttk.Radiobutton(radio_frame, text="v1.1 (2 consolidated packet types)", 
+                       variable=selected_version, value="1.1").pack(anchor='w')
+        
+        button_frame = ttk.Frame(version_dialog)
+        button_frame.pack(pady=20)
+        
+        ttk.Button(button_frame, text="OK", command=on_confirm).pack(side='left', padx=5)
+        ttk.Button(button_frame, text="Cancel", command=on_cancel).pack(side='left', padx=5)
+        
+        # Center the dialog
+        version_dialog.update_idletasks()
+        x = (version_dialog.winfo_screenwidth() // 2) - (version_dialog.winfo_width() // 2)
+        y = (version_dialog.winfo_screenheight() // 2) - (version_dialog.winfo_height() // 2)
+        version_dialog.geometry(f"+{x}+{y}")
+        
+        # Wait for user response
+        version_dialog.wait_window()
+        
+        if result['version'] is None:
+            return []  # User cancelled
+        
+        self.data_version = result['version']
         
         # Find packet boundaries
         offset = 0
@@ -471,6 +797,7 @@ class LFSTelemetryParser:
                 if packet_data_dict:
                     packet_data_dict['timestamp'] = packet_count
                     packet_data_dict['packet_index'] = packet_count
+                    packet_data_dict['data_version'] = self.data_version
                     parsed_data.append(packet_data_dict)
                     packet_count += 1
             
@@ -658,13 +985,14 @@ class TelemetryViewer:
     def update_vehicle_state(self, packet: Dict[str, Any], packet_index: int):
         """Update persistent vehicle state with data from current packet"""
         packet_type = packet.get('type', 'UNKNOWN')
+        data_version = packet.get('data_version', '1.0')
         
         # Update last updated timestamp for this packet type
         if packet_type in self.vehicle_state['lastUpdated']:
             self.vehicle_state['lastUpdated'][packet_type] = packet_index
         
-        # Update state based on packet type
-        if packet_type == 'STATE_TELEMETRY':
+        # Update state based on packet type and version
+        if packet_type in ['STATE_TELEMETRY', 'STATE_TELEMETRY_V11']:
             self.vehicle_state['vehicleState'] = packet['vehicleState']
             self.vehicle_state['vehicleStateName'] = packet['vehicleStateName']
             self.vehicle_state['quaternion'] = packet['quaternion'].copy()
@@ -673,6 +1001,19 @@ class TelemetryViewer:
             self.vehicle_state['velocity'] = packet['velocity'].copy()
             self.vehicle_state['position'] = packet['position'].copy()
             self.vehicle_state['timeSinceLaunch'] = packet['timeSinceLaunch']
+            
+            # For v1.1, sensor and kalman data is in the same packet
+            if packet_type == 'STATE_TELEMETRY_V11':
+                self.vehicle_state['failmask'] = packet['failmask']
+                self.vehicle_state['sensorStatus'] = packet['sensorStatus'].copy()
+                self.vehicle_state['sdGood'] = packet['sdGood']
+                self.vehicle_state['gyro'] = packet['gyro'].copy()
+                self.vehicle_state['accelerometer'] = packet['accelerometer'].copy()
+                self.vehicle_state['baroAltitude'] = packet['baroAltitude']
+                self.vehicle_state['gyroBias'] = packet['gyroBias'].copy()
+                
+                self.vehicle_state['kalmanUncertainty'] = packet['uncertainty'].copy()
+                self.vehicle_state['kalmanMeasurements'] = packet['measurements'].copy()
             
         elif packet_type == 'SENSORS':
             self.vehicle_state['failmask'] = packet['failmask']
@@ -683,7 +1024,7 @@ class TelemetryViewer:
             self.vehicle_state['baroAltitude'] = packet['baroAltitude']
             self.vehicle_state['gyroBias'] = packet['gyroBias'].copy()
             
-        elif packet_type == 'GPS':
+        elif packet_type in ['GPS', 'GPS_V11']:
             self.vehicle_state['satellites'] = packet['satellites'].copy()
             self.vehicle_state['gpsQuality'] = packet['quality']
             self.vehicle_state['gpsPosition'] = packet['position'].copy()
@@ -693,6 +1034,23 @@ class TelemetryViewer:
             self.vehicle_state['pdop'] = packet['pdop']
             self.vehicle_state['lastRTCM'] = packet['lastRTCM']
             self.vehicle_state['relativePosition'] = packet['relativePosition'].copy()
+            
+            # For v1.1, lander data is in the same packet
+            if packet_type == 'GPS_V11':
+                self.vehicle_state['target'] = packet['target'].copy()
+                self.vehicle_state['ignitionAltitude'] = packet['ignitionAltitude']
+                self.vehicle_state['apogeeAltitude'] = packet['apogeeAltitude']
+                self.vehicle_state['setpoints'] = packet['setpoints'].copy()
+                self.vehicle_state['commands'] = packet['commands'].copy()
+                self.vehicle_state['rollMixed'] = packet['rollMixed'].copy()
+                self.vehicle_state['misaligns'] = packet['misaligns'].copy()
+                self.vehicle_state['projected'] = packet['projected'].copy()
+                self.vehicle_state['batteryVoltage'] = packet['batteryVoltage']
+                self.vehicle_state['thrust'] = packet['thrust']
+                self.vehicle_state['mass'] = packet['mass']
+                self.vehicle_state['momentOfInertia'] = packet['momentOfInertia']
+                self.vehicle_state['momentArm'] = packet['momentArm']
+                self.vehicle_state['pyroStatus'] = packet['pyroStatus'].copy()
             
         elif packet_type == 'LANDER':
             self.vehicle_state['target'] = packet['target'].copy()
@@ -1023,6 +1381,8 @@ class TelemetryViewer:
         euler_pitch = []
         rollmixed_yaw = []
         rollmixed_pitch = []
+        yaw_control = []
+        pitch_control = []
         yaw_corrected = []
         pitch_corrected = []
         pos_y = []
@@ -1060,6 +1420,10 @@ class TelemetryViewer:
             rollmixed_yaw.append(temp_state['rollMixed']['yaw'])
             rollmixed_pitch.append(temp_state['rollMixed']['pitch'])
 
+            commands = temp_state['commands']
+            yaw_control.append(commands['yaw'])
+            pitch_control.append(commands['pitch'])
+
             # Calculate corrected angles (rollMixed angle - misalignment)
             yaw_corrected.append(temp_state['rollMixed']['yaw'] - temp_state['misaligns']['yaw'])
             pitch_corrected.append(temp_state['rollMixed']['pitch'] - temp_state['misaligns']['pitch'])
@@ -1089,6 +1453,10 @@ class TelemetryViewer:
         pitch_misaligns = np.array(pitch_misaligns)
         euler_yaw = np.array(euler_yaw)
         euler_pitch = np.array(euler_pitch)
+
+        yaw_control = np.array(yaw_control) / 100.0  # Scale if necessary
+        pitch_control = np.array(pitch_control) / 100.0
+
         rollmixed_yaw = np.array(rollmixed_yaw)
         rollmixed_pitch = np.array(rollmixed_pitch)
         yaw_corrected = np.array(yaw_corrected)
@@ -1102,20 +1470,21 @@ class TelemetryViewer:
         print(proj_z)
 
         # Create figure with subplots (2x3 grid for 5 plots)
-        fig, axs = plt.subplots(2, 3, figsize=(18, 10))
+        fig, axs = plt.subplots(2, 2, figsize=(18, 10))
         fig.suptitle('Gimbal Control Analysis', fontsize=16)
         ax1 = axs[0, 0]
         ax2 = axs[0, 1]
-        ax3 = axs[0, 2]
-        ax4 = axs[1, 0]
+        # ax3 = axs[0, 2]
+        # ax4 = axs[1, 0]
         ax5 = axs[1, 1]
 
         # Plot 1: Yaw Control
         ax1.plot(timestamps, np.degrees(yaw_setpoints), 'b-', label='Yaw Setpoint', linewidth=2)
-        ax1.plot(timestamps, np.degrees(yaw_misaligns), 'r-', label='Yaw Misalignment', linewidth=1)
+        ax1.plot(timestamps, np.degrees(yaw_control), 'orange', label='Yaw Control', linewidth=1)
+        # ax1.plot(timestamps, np.degrees(yaw_misaligns), 'r-', label='Yaw Misalignment', linewidth=1)
         ax1.plot(timestamps, np.degrees(euler_yaw), 'g-', label='Actual Yaw (Euler)', linewidth=1)
-        ax1.plot(timestamps, np.degrees(rollmixed_yaw), 'orange', label='RollMixed Yaw', linewidth=1)
-        ax1.plot(timestamps, np.degrees(yaw_corrected), 'm--', label='Corrected Yaw (RollMixed - Misalign)', linewidth=1)
+        # ax1.plot(timestamps, np.degrees(rollmixed_yaw), 'orange', label='RollMixed Yaw', linewidth=1)
+        # ax1.plot(timestamps, np.degrees(yaw_corrected), 'm--', label='Corrected Yaw (RollMixed - Misalign)', linewidth=1)
         ax1.set_xlabel('Time (s)')
         ax1.set_ylabel('Yaw Angle (degrees)')
         ax1.set_title('Yaw Control')
@@ -1124,10 +1493,11 @@ class TelemetryViewer:
 
         # Plot 2: Pitch Control
         ax2.plot(timestamps, np.degrees(pitch_setpoints), 'b-', label='Pitch Setpoint', linewidth=2)
-        ax2.plot(timestamps, np.degrees(pitch_misaligns), 'r-', label='Pitch Misalignment', linewidth=1)
+        ax2.plot(timestamps, np.degrees(pitch_control), 'orange', label='Pitch Control', linewidth=1)
+        #ax2.plot(timestamps, np.degrees(pitch_misaligns), 'r-', label='Pitch Misalignment', linewidth=1)
         ax2.plot(timestamps, np.degrees(euler_pitch), 'g-', label='Actual Pitch (Euler)', linewidth=1)
-        ax2.plot(timestamps, np.degrees(rollmixed_pitch), 'orange', label='RollMixed Pitch', linewidth=1)
-        ax2.plot(timestamps, np.degrees(pitch_corrected), 'm--', label='Corrected Pitch (RollMixed - Misalign)', linewidth=1)
+        # ax2.plot(timestamps, np.degrees(rollmixed_pitch), 'orange', label='RollMixed Pitch', linewidth=1)
+        # ax2.plot(timestamps, np.degrees(pitch_corrected), 'm--', label='Corrected Pitch (RollMixed - Misalign)', linewidth=1)
         ax2.set_xlabel('Time (s)')
         ax2.set_ylabel('Pitch Angle (degrees)')
         ax2.set_title('Pitch Control')
@@ -1135,24 +1505,24 @@ class TelemetryViewer:
         ax2.grid(True, alpha=0.3)
 
         # Plot 3: Misalignments
-        ax3.plot(timestamps, np.degrees(yaw_misaligns), 'r-', label='Yaw Misalignment', linewidth=2)
-        ax3.plot(timestamps, np.degrees(pitch_misaligns), 'orange', label='Pitch Misalignment', linewidth=2)
-        ax3.set_xlabel('Time (s)')
-        ax3.set_ylabel('Misalignment (degrees)')
-        ax3.set_title('Gimbal Misalignments')
-        ax3.legend()
-        ax3.grid(True, alpha=0.3)
+        # ax3.plot(timestamps, np.degrees(yaw_misaligns), 'r-', label='Yaw Misalignment', linewidth=2)
+        # ax3.plot(timestamps, np.degrees(pitch_misaligns), 'orange', label='Pitch Misalignment', linewidth=2)
+        # ax3.set_xlabel('Time (s)')
+        # ax3.set_ylabel('Misalignment (degrees)')
+        # ax3.set_title('Gimbal Misalignments')
+        # ax3.legend()
+        # ax3.grid(True, alpha=0.3)
 
         # Plot 4: Control Errors
-        yaw_error = np.degrees(yaw_setpoints - rollmixed_yaw)
-        pitch_error = np.degrees(pitch_setpoints - rollmixed_pitch)
-        ax4.plot(timestamps, yaw_error, 'b-', label='Yaw Error (Setpoint - RollMixed)', linewidth=2)
-        ax4.plot(timestamps, pitch_error, 'g-', label='Pitch Error (Setpoint - RollMixed)', linewidth=2)
-        ax4.set_xlabel('Time (s)')
-        ax4.set_ylabel('Control Error (degrees)')
-        ax4.set_title('Control Errors (Setpoint - RollMixed)')
-        ax4.legend()
-        ax4.grid(True, alpha=0.3)
+        # yaw_error = np.degrees(yaw_setpoints - rollmixed_yaw)
+        # pitch_error = np.degrees(pitch_setpoints - rollmixed_pitch)
+        # ax4.plot(timestamps, yaw_error, 'b-', label='Yaw Error (Setpoint - RollMixed)', linewidth=2)
+        # ax4.plot(timestamps, pitch_error, 'g-', label='Pitch Error (Setpoint - RollMixed)', linewidth=2)
+        # ax4.set_xlabel('Time (s)')
+        # ax4.set_ylabel('Control Error (degrees)')
+        # ax4.set_title('Control Errors (Setpoint - RollMixed)')
+        # ax4.legend()
+        # ax4.grid(True, alpha=0.3)
 
         # Plot 5: Y/Z Position vs Projected Position
         # Remove zeros for each series and keep only matching timestamps
@@ -1190,7 +1560,7 @@ class TelemetryViewer:
         ax5.grid(True, alpha=0.3)
 
         # Hide unused subplot (axs[1,2])
-        axs[1,2].axis('off')
+        # axs[1,2].axis('off')
 
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 
@@ -1198,10 +1568,15 @@ class TelemetryViewer:
         canvas = FigureCanvasTkAgg(fig, self.plot_window)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        # Add interactive cursors with hover tooltips to all plots
+        mplcursors.cursor(ax1, hover=True)
+        mplcursors.cursor(ax2, hover=True)  
+        mplcursors.cursor(ax5, hover=True)
 
         # Add current position indicator
         current_time = timestamps[self.current_index] if self.current_index < len(timestamps) else 0
-        for ax in [ax1, ax2, ax3, ax4, ax5]:
+        for ax in [ax1, ax2, ax5]:
             ax.axvline(x=current_time, color='red', linestyle=':', alpha=0.7, label='Current Position')
     
     def reset_temp_vehicle_state(self):
@@ -1212,6 +1587,7 @@ class TelemetryViewer:
             'setpoints': {'yaw': 0.0, 'pitch': 0.0},
             'misaligns': {'yaw': 0.0, 'pitch': 0.0},
             'rollMixed': {'yaw': 0.0, 'pitch': 0.0},
+            'commands': {'yaw': 0.0, 'pitch': 0.0, 'roll': 0.0},
             'lastUpdated': {
                 'STATE_TELEMETRY': -1,
                 'LANDER': -1
@@ -1225,15 +1601,31 @@ class TelemetryViewer:
         if packet_type in temp_state['lastUpdated']:
             temp_state['lastUpdated'][packet_type] = packet_index
         
-        if packet_type == 'STATE_TELEMETRY':
+        if packet_type in ['STATE_TELEMETRY', 'STATE_TELEMETRY_V11']:
             temp_state['timeSinceLaunch'] = packet['timeSinceLaunch']
             if 'eulerAngles' in packet:
                 temp_state['eulerAngles'] = packet['eulerAngles']
         
-        elif packet_type == 'LANDER':
-            temp_state['setpoints'] = packet['setpoints'].copy()
-            temp_state['misaligns'] = packet['misaligns'].copy()
-            temp_state['rollMixed'] = packet['rollMixed'].copy()
+        elif packet_type in ['LANDER', 'GPS_V11']:
+            if 'setpoints' in packet:
+                temp_state['setpoints'] = packet['setpoints'].copy()
+            if 'misaligns' in packet:
+                temp_state['misaligns'] = packet['misaligns'].copy()
+            if 'rollMixed' in packet:
+                temp_state['rollMixed'] = packet['rollMixed'].copy()
+            if 'commands' in packet:
+                temp_state['commands'] = packet['commands'].copy()
+                
+        # For v1.1 GPS packets that include lander data
+        if packet_type == 'GPS_V11':
+            if 'setpoints' in packet:
+                temp_state['setpoints'] = packet['setpoints'].copy()
+            if 'misaligns' in packet:
+                temp_state['misaligns'] = packet['misaligns'].copy()
+            if 'rollMixed' in packet:
+                temp_state['rollMixed'] = packet['rollMixed'].copy()
+            if 'commands' in packet:
+                temp_state['commands'] = packet['commands'].copy()
 
 def main():
     root = tk.Tk()

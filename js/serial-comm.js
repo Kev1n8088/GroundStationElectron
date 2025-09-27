@@ -31,12 +31,9 @@ const MESSAGE_TYPES = {
     RTCM_FRAGMENT_4: 54,
     RTCM_FINAL: 55,
     
-    // Telemetry messages
-    STATE_TELEMETRY: 155,
-    SENSORS: 156,
-    GPS: 157,
-    LANDER: 158,
-    KALMAN: 159
+    // Telemetry messages (v1.1 consolidated format)
+    STATE_TELEMETRY: 155,  // Consolidated: state + sensor + kalman data (181 bytes)
+    GPS: 157               // Consolidated: GPS + lander data (162 bytes)
 };
 
 // Command Types for uplink
@@ -329,17 +326,8 @@ class LFSSerialComm {
             case MESSAGE_TYPES.STATE_TELEMETRY:
                 this.handleStateTelemetry(unpacked.data);
                 break;
-            case MESSAGE_TYPES.SENSORS:
-                this.handleSensorData(unpacked.data);
-                break;
             case MESSAGE_TYPES.GPS:
                 this.handleGPSData(unpacked.data);
-                break;
-            case MESSAGE_TYPES.LANDER:
-                this.handleLanderData(unpacked.data);
-                break;
-            case MESSAGE_TYPES.KALMAN:
-                this.handleKalmanData(unpacked.data);
                 break;
             case 221:
                 this.numAcks += 1;
@@ -446,13 +434,14 @@ class LFSSerialComm {
     }
 
     handleStateTelemetry(data) {
-        if (data.length < 65) {
+        if (data.length < 181) {
             console.error('State telemetry data too short');
             return;
         }
 
         let offset = 0;
         
+        // State telemetry basic data
         const vehicleState = data.readInt8(offset); offset += 1;
         const quatW = data.readFloatLE(offset); offset += 4;
         const quatX = data.readFloatLE(offset); offset += 4;
@@ -468,8 +457,46 @@ class LFSSerialComm {
         const posY = data.readFloatLE(offset); offset += 4;
         const posZ = data.readFloatLE(offset); offset += 4;
         const timeSinceLaunch = data.readFloatLE(offset); offset += 4;
+        
+        // Sensor data (immediately following state data)
+        const failmask = data.readInt8(offset); offset += 1;
+        const sdGood = data.readUInt8(offset) !== 0; offset += 1;
+        const gyroYaw = data.readFloatLE(offset); offset += 4;
+        const gyroPitch = data.readFloatLE(offset); offset += 4;
+        const gyroRoll = data.readFloatLE(offset); offset += 4;
+        const sensorAccelX = data.readFloatLE(offset); offset += 4;
+        const sensorAccelY = data.readFloatLE(offset); offset += 4;
+        const sensorAccelZ = data.readFloatLE(offset); offset += 4;
+        const baroAltitude = data.readFloatLE(offset); offset += 4;
+        const gyroBiasYaw = data.readFloatLE(offset); offset += 4;
+        const gyroBiasPitch = data.readFloatLE(offset); offset += 4;
+        const gyroBiasRoll = data.readFloatLE(offset); offset += 4;
+        
+        // Kalman uncertainty data
+        const accUncX = data.readFloatLE(offset); offset += 4;
+        const accUncY = data.readFloatLE(offset); offset += 4;
+        const accUncZ = data.readFloatLE(offset); offset += 4;
+        const velUncX = data.readFloatLE(offset); offset += 4;
+        const velUncY = data.readFloatLE(offset); offset += 4;
+        const velUncZ = data.readFloatLE(offset); offset += 4;
+        const posUncX = data.readFloatLE(offset); offset += 4;
+        const posUncY = data.readFloatLE(offset); offset += 4;
+        const posUncZ = data.readFloatLE(offset); offset += 4;
+        
+        // Kalman measurement data  
+        const accMeasX = data.readFloatLE(offset); offset += 4;
+        const accMeasY = data.readFloatLE(offset); offset += 4;
+        const accMeasZ = data.readFloatLE(offset); offset += 4;
+        const velMeasX = data.readFloatLE(offset); offset += 4;
+        const velMeasY = data.readFloatLE(offset); offset += 4;
+        const velMeasZ = data.readFloatLE(offset); offset += 4;
+        const posMeasX = data.readFloatLE(offset); offset += 4;
+        const posMeasY = data.readFloatLE(offset); offset += 4;
+        const posMeasZ = data.readFloatLE(offset); offset += 4;
+        
+        // Consolidated timing data (at end of packet)
         const vehicleMs = data.readUInt32LE(offset); offset += 4;
-        const downCount = data.readUInt32LE(offset);
+        const downCount = data.readUInt32LE(offset); offset += 4;
 
         const telemetryData = {
             vehicleState,
@@ -478,6 +505,32 @@ class LFSSerialComm {
             velocity: { x: velX, y: velY, z: velZ },
             position: { x: posX, y: posY, z: posZ },
             timeSinceLaunch,
+            vehicleMs,
+            downCount
+        };
+
+        const sensorData = {
+            failmask,
+            sdGood,
+            gyro: { yaw: gyroYaw, pitch: gyroPitch, roll: gyroRoll },
+            accelerometer: { x: sensorAccelX, y: sensorAccelY, z: sensorAccelZ },
+            baroAltitude,
+            gyroBias: { yaw: gyroBiasYaw, pitch: gyroBiasPitch, roll: gyroBiasRoll }, 
+            vehicleMs,
+            downCount
+        };
+
+        const kalmanData = {
+            uncertainty: {
+                acceleration: { x: accUncX, y: accUncY, z: accUncZ },
+                velocity: { x: velUncX, y: velUncY, z: velUncZ },
+                position: { x: posUncX, y: posUncY, z: posUncZ }
+            },
+            measurements: {
+                acceleration: { x: accMeasX, y: accMeasY, z: accMeasZ },
+                velocity: { x: velMeasX, y: velMeasY, z: velMeasZ },
+                position: { x: posMeasX, y: posMeasY, z: posMeasZ }
+            },
             vehicleMs,
             downCount
         };
@@ -491,6 +544,11 @@ class LFSSerialComm {
         this.updateDisplaysWithTelemetry(telemetryData);
         this.updateVehicleState(vehicleState);
         this.updateLaunchTime(timeSinceLaunch);
+        
+        // Update sensor status
+        this.updateSensorStatus(failmask);
+        this.updateSensorPanelData(sensorData);
+        
         getControlPlots().updateCurrentPosition(telemetryData.position);
         getControlPlots().updateCurrentQuaternion(telemetryData.quaternion);
         
@@ -501,6 +559,9 @@ class LFSSerialComm {
                 velocity: telemetryData.velocity,
                 acceleration: telemetryData.acceleration,
              });
+             
+            // Send Kalman position data to plots window via IPC
+            ipcRenderer.send('position-data-kalman', { measurements: kalmanData.measurements });
         }
         
         // Update flight data chart with altitude and time since launch
@@ -513,61 +574,33 @@ class LFSSerialComm {
             velocityIndicator.updateVelocity(telemetryData.velocity.x);
         }
 
-
-        this.updateKalmanMeasurements({position: telemetryData.position, velocity: telemetryData.velocity, acceleration: telemetryData.acceleration});
-    }
-
-    handleSensorData(data) {
-        if (data.length < 50) {
-            console.error('Sensor data too short');
-            return;
-        }
-
-        let offset = 0;
-        
-        const failmask = data.readInt8(offset); offset += 1;
-        const sdGood = data.readUInt8(offset) !== 0; offset += 1;
-        const gyroYaw = data.readFloatLE(offset); offset += 4;
-        const gyroPitch = data.readFloatLE(offset); offset += 4;
-        const gyroRoll = data.readFloatLE(offset); offset += 4;
-        const accelX = data.readFloatLE(offset); offset += 4;
-        const accelY = data.readFloatLE(offset); offset += 4;
-        const accelZ = data.readFloatLE(offset); offset += 4;
-        const baroAltitude = data.readFloatLE(offset); offset += 4;
-        const gyroBiasYaw = data.readFloatLE(offset); offset += 4;
-        const gyroBiasPitch = data.readFloatLE(offset); offset += 4;
-        const gyroBiasRoll = data.readFloatLE(offset); offset += 4;
-        const vehicleMs = data.readUInt32LE(offset);  offset += 4;
-        const downCount = data.readUInt32LE(offset); 
-
-        const sensorData = {
-            failmask,
-            sdGood,
-            gyro: { yaw: gyroYaw, pitch: gyroPitch, roll: gyroRoll },
-            accelerometer: { x: accelX, y: accelY, z: accelZ },
-            baroAltitude,
-            gyroBias: { yaw: gyroBiasYaw, pitch: gyroBiasPitch, roll: gyroBiasRoll }, 
-            vehicleMs,
-            downCount
-        };
-
-        //console.log('Sensor Data:', sensorData);
-        this.updateSensorStatus(failmask);
-        this.updateSensorPanelData(sensorData);
-        
         // Update roll rate indicator with gyro roll data
         if (typeof rollRateIndicator !== 'undefined') {
             rollRateIndicator.updateRollRate(gyroRoll);
         }
+        
+        // Update Kalman standard deviation indicator with uncertainty data
+        if (typeof kalmanStdIndicator !== 'undefined') {
+            kalmanStdIndicator.updateAllStdDevs(
+                kalmanData.uncertainty.position,
+                kalmanData.uncertainty.velocity,
+                kalmanData.uncertainty.acceleration
+            );
+        }
+
+        this.updateKalmanMeasurements({position: telemetryData.position, velocity: telemetryData.velocity, acceleration: telemetryData.acceleration});
     }
-    
+
+
     handleGPSData(data) {
-        if (data.length < 79) {
+        if (data.length < 162) {
             console.error('GPS data too short');
             return;
         }
 
         let offset = 0;
+        
+        // GPS data (79 bytes)
         const satsInView = data.readUInt8(offset); offset += 1;
         const satsUsed = data.readUInt8(offset); offset += 1;
         const gpsQuality = data.readUInt8(offset); offset += 1;
@@ -588,42 +621,7 @@ class LFSSerialComm {
         const relX = data.readFloatLE(offset); offset += 4;
         const relY = data.readFloatLE(offset); offset += 4;
         const relZ = data.readFloatLE(offset); offset += 4;
-        const vehicleMs = data.readUInt32LE(offset); offset += 4;
-        const downCount = data.readUInt32LE(offset);
-
-        const gpsData = {
-            satellites: { inView: satsInView, used: satsUsed },
-            quality: gpsQuality,
-            dilutionOfPrecision: { position: pdop},
-            position: { latitude: currentLat, longitude: currentLon, altitude: currentAlt },
-            homePosition: { latitude: homeLat, longitude: homeLon, altitude: homeAlt },
-            velocity: { down: downVel, east: eastVel, north: northVel },
-            lastRTCM,
-            accuracy: { threeD: accuracy3D, twoD: accuracy2D },
-            relPos: { x: relX, y: relY, z: relZ },
-            vehicleMs,
-            downCount
-        };
-
-        //console.log('GPS Data:', gpsData);
-        this.updateGPSFixType(gpsQuality);
-        this.updateRTCMAge(lastRTCM);
-        this.updateGPSPanelData(gpsData);
-        
-        // Update GPS map if available
-        if (typeof gpsMap !== 'undefined') {
-            gpsMap.updateCurrentPosition(currentLat, currentLon);
-            gpsMap.updateHomePosition(homeLat, homeLon);
-        }
-    }
-
-    handleLanderData(data){
-        if (data.length < 89) {
-            console.error('Lander data too short');
-            return;
-        }
-
-        let offset = 0;
+        // Lander data (83 bytes)
         const YTarget = data.readFloatLE(offset); offset += 4;
         const ZTarget = data.readFloatLE(offset); offset += 4;
         const ignitionAlt = data.readFloatLE(offset); offset += 4;
@@ -646,7 +644,21 @@ class LFSSerialComm {
         const momentArm = data.readFloatLE(offset); offset += 4;
         const pyroStatus = data.readUInt8(offset); offset += 1;
         const vehicleMs = data.readUInt32LE(offset); offset += 4;
-        const downCount = data.readUInt32LE(offset);
+        const downCount = data.readUInt32LE(offset); offset += 4;
+
+        const gpsData = {
+            satellites: { inView: satsInView, used: satsUsed },
+            quality: gpsQuality,
+            dilutionOfPrecision: { position: pdop},
+            position: { latitude: currentLat, longitude: currentLon, altitude: currentAlt },
+            homePosition: { latitude: homeLat, longitude: homeLon, altitude: homeAlt },
+            velocity: { down: downVel, east: eastVel, north: northVel },
+            lastRTCM,
+            accuracy: { threeD: accuracy3D, twoD: accuracy2D },
+            relPos: { x: relX, y: relY, z: relZ },
+            vehicleMs,
+            downCount
+        };
 
         const landerData = {
             target: { Y: YTarget, Z: ZTarget },
@@ -668,11 +680,16 @@ class LFSSerialComm {
             downCount
         };
 
-        console.log(apogeeAlt);
-
         // Store latest thrust value
         this.lastThrust = thrust;
 
+        console.log(apogeeAlt);
+
+        //console.log('GPS Data:', gpsData);
+        this.updateGPSFixType(gpsQuality);
+        this.updateRTCMAge(lastRTCM);
+        this.updateGPSPanelData(gpsData);
+        
         console.log('Lander Data:', landerData.misaligns);
         this.updateBatteryVoltage(VBAT);
         this.updatePyroStatus(pyroStatus);
@@ -680,6 +697,12 @@ class LFSSerialComm {
         getControlPlots().updateTargetPosition(landerData.target);
         getControlPlots().updateMisalignments(yawMisalign, pitchMisalign);
         getControlPlots().updateRollMixedCommands(rollMixedYaw, rollMixedPitch);
+        
+        // Update GPS map if available
+        if (typeof gpsMap !== 'undefined') {
+            gpsMap.updateCurrentPosition(currentLat, currentLon);
+            gpsMap.updateHomePosition(homeLat, homeLon);
+        }
         
         // Update flight data chart with thrust data
         if (typeof updateFlightChart !== 'undefined') {
@@ -692,68 +715,7 @@ class LFSSerialComm {
         }
     }
 
-    handleKalmanData(data){
-        if (data.length < 80){
-            console.error('Kalman data too short');
-            return;
-        }
 
-        let offset = 0;
-        const accUncX = data.readFloatLE(offset); offset += 4;
-        const accUncY = data.readFloatLE(offset); offset += 4;
-        const accUncZ = data.readFloatLE(offset); offset += 4;
-        const velUncX = data.readFloatLE(offset); offset += 4;
-        const velUncY = data.readFloatLE(offset); offset += 4;
-        const velUncZ = data.readFloatLE(offset); offset += 4;
-        const posUncX = data.readFloatLE(offset); offset += 4;
-        const posUncY = data.readFloatLE(offset); offset += 4;
-        const posUncZ = data.readFloatLE(offset); offset += 4;
-        const accMeasX = data.readFloatLE(offset); offset += 4;
-        const accMeasY = data.readFloatLE(offset); offset += 4;
-        const accMeasZ = data.readFloatLE(offset); offset += 4;
-        const velMeasX = data.readFloatLE(offset); offset += 4;
-        const velMeasY = data.readFloatLE(offset); offset += 4;
-        const velMeasZ = data.readFloatLE(offset); offset += 4;
-        const posMeasX = data.readFloatLE(offset); offset += 4;
-        const posMeasY = data.readFloatLE(offset); offset += 4;
-        const posMeasZ = data.readFloatLE(offset); offset += 4;
-        const vehicleMs = data.readUInt32LE(offset); offset += 4;
-        const downCount = data.readUInt32LE(offset);
-
-        const kalmanData = {
-            uncertainty: {
-                acceleration: { x: accUncX, y: accUncY, z: accUncZ },
-                velocity: { x: velUncX, y: velUncY, z: velUncZ },
-                position: { x: posUncX, y: posUncY, z: posUncZ }
-            },
-            measurements: {
-                acceleration: { x: accMeasX, y: accMeasY, z: accMeasZ },
-                velocity: { x: velMeasX, y: velMeasY, z: velMeasZ },
-                position: { x: posMeasX, y: posMeasY, z: posMeasZ }
-            },
-            vehicleMs,
-            downCount
-        };
-
-        //console.log('Kalman Data:', kalmanData);
-        
-        // Send Kalman position data to plots window via IPC
-        if (typeof window !== 'undefined' && window.require) {
-            const { ipcRenderer } = window.require('electron');
-            ipcRenderer.send('position-data-kalman', { measurements: kalmanData.measurements });
-        }
-        
-        // Update Kalman standard deviation indicator with uncertainty data
-        if (typeof kalmanStdIndicator !== 'undefined') {
-            kalmanStdIndicator.updateAllStdDevs(
-                kalmanData.uncertainty.position,
-                kalmanData.uncertainty.velocity,
-                kalmanData.uncertainty.acceleration
-            );
-        }
-        
-        // Update Kalman measurements display
-    }
 
     updateKalmanMeasurements(measurements) {
         // Update position measurements
