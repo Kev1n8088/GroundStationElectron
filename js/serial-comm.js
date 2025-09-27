@@ -661,7 +661,7 @@ class LFSSerialComm {
         };
 
         const landerData = {
-            target: { Y: YTarget, Z: ZTarget },
+            target: { y: YTarget, z: ZTarget },
             ignitionAltitude: ignitionAlt,
             apogeeAltitude: apogeeAlt,
             setpoints: { yaw: yawSetpoint, pitch: pitchSetpoint },
